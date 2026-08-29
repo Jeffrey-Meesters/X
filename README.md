@@ -199,6 +199,14 @@ Other things worth knowing:
 - Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to point at an existing Chromium if you
   are in a sandbox whose pre-installed browser does not match the Playwright
   version.
+- **Node 24 (active LTS).** Node 20 reached end of life in April 2026 and 22 is
+  in maintenance. `engines` is `^22.12.0 || >=24.0.0`, derived from what the
+  toolchain actually declares: Vite needs >=22.12, and Vitest lists
+  `^20 || ^22 || >=24`, deliberately excluding the odd-numbered, non-LTS 23.
+- CI actions are pinned to `@v7`. Worth knowing before bumping them: the first
+  major running on node24 differs per action — `upload-artifact@v5` is still on
+  node20, while `checkout` and `setup-node` moved at v5. A uniform bump to v5
+  would have left the deprecation in place.
 
 ## Safety
 
