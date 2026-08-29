@@ -19,7 +19,7 @@ Under construction, built in milestones against the product spec.
 - [x] **6 — Onboarding**: three questions, safety acknowledgement, settings
 - [x] **7 — Cues**: generated tones, voice, haptics, wake lock
 - [x] **8 — Animations**: 16 hand-authored SVG movements
-- [ ] 9 — Charts, progression nudges, weekly summary
+- [x] **9 — History**: summary, progression nudges, charts, weekly rollup
 - [ ] 10 — PWA shell, offline, export/import
 - [ ] 11 — Customisation screens
 
@@ -173,6 +173,27 @@ any exercise without its own drawing. Five exercises deliberately share a
 drawing where the movement path is identical — a seated and a standing shoulder
 press trace the same arc — which is asserted explicitly rather than left to
 drift.
+
+### Charts
+
+Hand-rolled SVG, no charting dependency. Three rules the code depends on:
+
+- **Chart marks have their own colour tokens, stepped per mode.** The player's
+  accents are deliberately light so they glow on a dark screen at arm's length,
+  which puts them outside the chart lightness band and below 3:1 contrast on a
+  light surface — measured with the palette validator, not guessed. Chart series
+  use `--chart-series` (`#2a78d6` light / `#3987e5` dark), which passes every
+  check in both modes.
+- **A tooltip is never the only way to read a value.** The line chart carries a
+  crosshair and a live readout, and every chart has a "Show values" table.
+- **One bar is not a chart.** Weekly volume renders as a plain number until
+  there is a second week to compare it to.
+
+Progression nudges only appear for an exercise where *every* round was confirmed
+at the top of the rep range, and accepting one writes a `progressionTargets` row
+that the next session's pre-fill consults. The target stops applying once the
+exercise has been lifted since, so a stale acceptance never overrides a weight
+the user has already moved past by hand.
 
 ## Toolchain notes
 

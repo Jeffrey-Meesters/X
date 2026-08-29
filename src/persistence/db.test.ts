@@ -14,6 +14,8 @@ import {
   isResumable,
   exportAll,
   clearAll,
+  readProgressionTargets,
+  writeProgressionTarget,
   RESUME_WINDOW_MS,
   type ActiveSessionRecord,
 } from './db'
@@ -330,5 +332,122 @@ describe('crash recovery', () => {
 
     expect(recovery.pending.value).toBeUndefined()
     expect(recovery.checked.value).toBe(true)
+  })
+})
+
+describe('progression targets', () => {
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    await freshDb()
+  })
+
+  it('round-trips an accepted target', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+
+    setActivePinia(createPinia())
+    const reloaded = useHistoryStore()
+    await reloaded.load()
+
+    expect(reloaded.targetFor('goblet-squat')).toBe(22.5)
+  })
+
+  it('keeps only the latest target per exercise', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+    await history.acceptProgression('goblet-squat', 25)
+
+    expect(history.targets.filter((t) => t.exerciseId === 'goblet-squat')).toHaveLength(1)
+    expect(history.targetFor('goblet-squat')).toBe(25)
+  })
+
+  it('stops applying once the exercise has been lifted since', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+
+    // A target accepted and then never acted on should not keep overriding a
+    // pre-fill the user has since moved past by hand.
+    await history.startSessionLog(log('log-2', '2026-08-30T09:00:00.000Z'))
+    await history.addSet({
+      ...set('set-9', 'log-2', 'goblet-squat', 30),
+      completedAt: new Date(Date.now() + 60_000).toISOString(),
+    })
+
+    expect(history.targetFor('goblet-squat')).toBeUndefined()
+  })
+
+  it('does not leak between exercises', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+    expect(history.targetFor('db-rdl')).toBeUndefined()
+  })
+
+  it('can be cleared', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+    await history.clearTarget('goblet-squat')
+
+    expect(history.targetFor('goblet-squat')).toBeUndefined()
+    expect(await readProgressionTargets()).toEqual([])
+  })
+
+  it('is included in the export', async () => {
+    const history = useHistoryStore()
+    await history.acceptProgression('goblet-squat', 22.5)
+
+    const exported = await exportAll()
+    expect(exported.progressionTargets).toHaveLength(1)
+  })
+})
+
+describe('schema migration from v1', () => {
+  it('adds the new store to an existing v1 database without losing history', async () => {
+    await closeDb()
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.deleteDatabase('fullbody15')
+      request.onsuccess = () => resolve()
+      request.onerror = () => resolve()
+      request.onblocked = () => resolve()
+    })
+
+    // Build a v1 database by hand, exactly as the shipped v1 upgrade did.
+    await new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('fullbody15', 1)
+      open.onupgradeneeded = () => {
+        const db = open.result
+        const logs = db.createObjectStore('sessionLogs', { keyPath: 'id' })
+        logs.createIndex('by-startedAt', 'startedAt')
+        const sets = db.createObjectStore('sets', { keyPath: 'id' })
+        sets.createIndex('by-sessionLogId', 'sessionLogId')
+        sets.createIndex('by-exerciseId', 'exerciseId')
+        db.createObjectStore('activeSession')
+      }
+      open.onsuccess = () => {
+        const db = open.result
+        const tx = db.transaction('sessionLogs', 'readwrite')
+        tx.objectStore('sessionLogs').put(log('legacy', '2026-08-01T09:00:00.000Z'))
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+      }
+      open.onerror = () => reject(open.error)
+    })
+
+    // Opening at the current version must migrate rather than start over: a
+    // device with months of history has to gain the new store and keep it all.
+    const stored = await readAllSessionLogs()
+    expect(stored.map((l) => l.id)).toEqual(['legacy'])
+    expect(await readProgressionTargets()).toEqual([])
+
+    await writeProgressionTarget({
+      exerciseId: 'goblet-squat',
+      weightKg: 20,
+      acceptedAt: '2026-08-29T09:00:00.000Z',
+    })
+    expect(await readProgressionTargets()).toHaveLength(1)
+    expect((await readAllSessionLogs()).map((l) => l.id)).toEqual(['legacy'])
   })
 })

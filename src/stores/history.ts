@@ -1,7 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { LoggedSet, SessionLog } from '@/types/models'
-import { readAllSessionLogs, readAllSets, writeSessionLog, writeSet } from '@/persistence/db'
+import {
+  clearProgressionTarget,
+  readAllSessionLogs,
+  readAllSets,
+  readProgressionTargets,
+  writeProgressionTarget,
+  writeSessionLog,
+  writeSet,
+  type ProgressionTarget,
+} from '@/persistence/db'
 
 /**
  * Session logs and per-exercise set history, backed by IndexedDB.
@@ -23,6 +32,8 @@ function warn(action: string, error: unknown): void {
 export const useHistoryStore = defineStore('history', () => {
   const sessionLogs = ref<SessionLog[]>([])
   const sets = ref<LoggedSet[]>([])
+  /** Weights accepted from progression nudges, keyed by exercise. */
+  const targets = ref<ProgressionTarget[]>([])
 
   const completedSessionCount = computed(
     () => sessionLogs.value.filter((log) => log.completed).length,
@@ -39,9 +50,14 @@ export const useHistoryStore = defineStore('history', () => {
   async function load(): Promise<void> {
     if (loaded.value) return
     try {
-      const [logs, allSets] = await Promise.all([readAllSessionLogs(), readAllSets()])
+      const [logs, allSets, storedTargets] = await Promise.all([
+        readAllSessionLogs(),
+        readAllSets(),
+        readProgressionTargets(),
+      ])
       sessionLogs.value = logs
       sets.value = allSets
+      targets.value = storedTargets
     } catch (error) {
       // A blocked or unavailable IndexedDB must not stop the user training.
       // They lose history, not the session in front of them.
@@ -118,10 +134,58 @@ export const useHistoryStore = defineStore('history', () => {
     return lastSessionSetsFor(exerciseId, excludeLogId).length === 0
   }
 
+  /**
+   * Records a weight the user accepted from a progression nudge, so the next
+   * session's entry opens on it.
+   */
+  async function acceptProgression(exerciseId: string, weightKg: number): Promise<void> {
+    const target: ProgressionTarget = {
+      exerciseId,
+      weightKg,
+      acceptedAt: new Date().toISOString(),
+    }
+    targets.value = [...targets.value.filter((t) => t.exerciseId !== exerciseId), target]
+
+    try {
+      await writeProgressionTarget(target)
+    } catch (error) {
+      warn('persist progression target', error)
+    }
+  }
+
+  /** Drops an accepted target once it has been used, or when declined. */
+  async function clearTarget(exerciseId: string): Promise<void> {
+    targets.value = targets.value.filter((t) => t.exerciseId !== exerciseId)
+    try {
+      await clearProgressionTarget(exerciseId)
+    } catch (error) {
+      warn('clear progression target', error)
+    }
+  }
+
+  /**
+   * The weight an accepted nudge set for this exercise, if it is still ahead of
+   * what has actually been lifted since.
+   *
+   * Guarding on the timestamp matters: a target accepted three sessions ago and
+   * never acted on should not keep overriding a pre-fill the user has since
+   * moved past by hand.
+   */
+  function targetFor(exerciseId: string): number | undefined {
+    const target = targets.value.find((t) => t.exerciseId === exerciseId)
+    if (!target) return undefined
+
+    const liftedSince = sets.value.some(
+      (set) => set.exerciseId === exerciseId && set.completedAt > target.acceptedAt,
+    )
+    return liftedSince ? undefined : target.weightKg
+  }
+
   /** Clears the in-memory mirror only. Used by tests and by import. */
   function reset(): void {
     sessionLogs.value = []
     sets.value = []
+    targets.value = []
     loaded.value = false
   }
 
@@ -138,6 +202,10 @@ export const useHistoryStore = defineStore('history', () => {
     setsForLog,
     lastSessionSetsFor,
     isFirstTimeFor,
+    targets,
+    acceptProgression,
+    clearTarget,
+    targetFor,
     reset,
   }
 })

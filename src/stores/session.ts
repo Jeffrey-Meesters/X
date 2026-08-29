@@ -118,12 +118,17 @@ export const useSessionStore = defineStore('session', () => {
       sessionLogId.value ?? undefined,
     )
 
+    // An accepted progression nudge is a deliberate instruction for this
+    // session, so it takes precedence over what was last lifted.
+    const accepted = history.targetFor(work.exerciseId)
+
     draft.value = {
       segmentIndex: transition.index,
       exerciseId: work.exerciseId,
       round: work.round ?? 1,
       targetReps: work.targetReps ?? [8, 12],
-      weightKg: prefillWeightKg({ lastSessionSets, units: settingsStore.settings.units }),
+      weightKg:
+        accepted ?? prefillWeightKg({ lastSessionSets, units: settingsStore.settings.units }),
       // Reps default to the target; the user taps down if they fell short.
       reps: work.targetReps?.[1] ?? 0,
       rir: null,

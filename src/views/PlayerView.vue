@@ -118,9 +118,18 @@ const volumeLabel = computed(() => {
   return `${sets.length} sets \u00b7 ${formatWeight(volume, units)} ${units} total volume`
 })
 
+/**
+ * The session log id has to be read before `reset()` clears it, which
+ * `onBeforeUnmount` does as soon as the route changes.
+ */
+function goToSummary(): void {
+  const id = session.sessionLogId
+  void router.replace(id ? { name: 'summary', params: { logId: id } } : { name: 'home' })
+}
+
 function endSession(): void {
   session.end()
-  void router.replace('/')
+  goToSummary()
 }
 </script>
 
@@ -137,9 +146,9 @@ function endSession(): void {
       <button
         type="button"
         class="mt-8 min-h-16 w-full rounded-2xl bg-work px-6 text-xl font-semibold text-surface"
-        @click="router.replace('/')"
+        @click="goToSummary"
       >
-        Done
+        See summary
       </button>
     </section>
 

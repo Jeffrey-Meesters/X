@@ -25,10 +25,23 @@
 
 :root {
   color-scheme: dark;
+
+  /*
+   * Chart marks get their own tokens, stepped per mode and validated against
+   * each surface. The player's accents are deliberately light so they glow on a
+   * dark screen at arm's length, which puts them outside the chart lightness
+   * band and below 3:1 contrast on a light surface - measured, not guessed.
+   */
+  --chart-series: #3987e5;
+  --chart-grid: oklch(0.3 0.01 260);
+  --chart-reference: oklch(0.62 0.01 260);
 }
 
 html.light {
   color-scheme: light;
+  --chart-series: #2a78d6;
+  --chart-grid: oklch(0.89 0.004 260);
+  --chart-reference: oklch(0.52 0.01 260);
 }
 
 body {
