@@ -117,8 +117,9 @@ test('runs a whole session through to completion', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Session complete' })).toBeVisible()
   await expect(page.getByTestId('completed-label')).toHaveText('14:30 of work')
 
-  await page.getByRole('button', { name: 'Done' }).click()
-  await expect(page).toHaveURL(/\/$/)
+  await page.getByRole('button', { name: 'See summary' }).click()
+  await expect(page).toHaveURL(/\/summary\//)
+  await expect(page.getByRole('heading', { name: /Session A done/ })).toBeVisible()
 })
 
 test('a paused session reports work and elapsed time separately', async ({ page }) => {

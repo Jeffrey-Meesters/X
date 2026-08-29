@@ -11,7 +11,7 @@ import type { Segment } from '@/engine/segments'
  */
 
 const DB_NAME = 'fullbody15'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 /** Only ever one row, under this key. */
 export const ACTIVE_SESSION_KEY = 'current'
@@ -39,6 +39,19 @@ export interface ActiveSessionRecord {
   readonly savedAt: number
 }
 
+/**
+ * A weight the user accepted from a progression nudge.
+ *
+ * Kept separate from logged sets because it is a statement of intent for the
+ * *next* session, not a record of something that happened. Folding it into
+ * history would mean inventing a set nobody performed.
+ */
+export interface ProgressionTarget {
+  readonly exerciseId: string
+  readonly weightKg: number
+  readonly acceptedAt: string
+}
+
 interface TrainerDB extends DBSchema {
   sessionLogs: {
     key: string
@@ -54,21 +67,37 @@ interface TrainerDB extends DBSchema {
     key: string
     value: ActiveSessionRecord
   }
+  progressionTargets: {
+    key: string
+    value: ProgressionTarget
+  }
 }
 
 let dbPromise: Promise<IDBPDatabase<TrainerDB>> | undefined
 
 export function getDb(): Promise<IDBPDatabase<TrainerDB>> {
   dbPromise ??= openDB<TrainerDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      const logs = db.createObjectStore('sessionLogs', { keyPath: 'id' })
-      logs.createIndex('by-startedAt', 'startedAt')
+    /**
+     * Runs for a fresh database and for every upgrade, with `oldVersion` 0 on
+     * first install. Each step is guarded on its own version rather than
+     * assuming a fresh install, because a device that already has v1 must gain
+     * the new store without losing its history.
+     */
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        const logs = db.createObjectStore('sessionLogs', { keyPath: 'id' })
+        logs.createIndex('by-startedAt', 'startedAt')
 
-      const sets = db.createObjectStore('sets', { keyPath: 'id' })
-      sets.createIndex('by-sessionLogId', 'sessionLogId')
-      sets.createIndex('by-exerciseId', 'exerciseId')
+        const sets = db.createObjectStore('sets', { keyPath: 'id' })
+        sets.createIndex('by-sessionLogId', 'sessionLogId')
+        sets.createIndex('by-exerciseId', 'exerciseId')
 
-      db.createObjectStore('activeSession')
+        db.createObjectStore('activeSession')
+      }
+
+      if (oldVersion < 2) {
+        db.createObjectStore('progressionTargets', { keyPath: 'exerciseId' })
+      }
     },
   })
   return dbPromise
@@ -137,13 +166,38 @@ export function isResumable(record: ActiveSessionRecord, now: number): boolean {
   return now - record.savedAt < RESUME_WINDOW_MS
 }
 
+export async function readProgressionTargets(): Promise<ProgressionTarget[]> {
+  return (await getDb()).getAll('progressionTargets')
+}
+
+export async function writeProgressionTarget(target: ProgressionTarget): Promise<void> {
+  await (await getDb()).put('progressionTargets', toStorable(target))
+}
+
+export async function clearProgressionTarget(exerciseId: string): Promise<void> {
+  await (await getDb()).delete('progressionTargets', exerciseId)
+}
+
 /** Everything, for the JSON export in a later milestone. */
-export async function exportAll(): Promise<{ sessionLogs: SessionLog[]; sets: LoggedSet[] }> {
-  const [sessionLogs, sets] = await Promise.all([readAllSessionLogs(), readAllSets()])
-  return { sessionLogs, sets }
+export async function exportAll(): Promise<{
+  sessionLogs: SessionLog[]
+  sets: LoggedSet[]
+  progressionTargets: ProgressionTarget[]
+}> {
+  const [sessionLogs, sets, progressionTargets] = await Promise.all([
+    readAllSessionLogs(),
+    readAllSets(),
+    readProgressionTargets(),
+  ])
+  return { sessionLogs, sets, progressionTargets }
 }
 
 export async function clearAll(): Promise<void> {
   const db = await getDb()
-  await Promise.all([db.clear('sessionLogs'), db.clear('sets'), db.clear('activeSession')])
+  await Promise.all([
+    db.clear('sessionLogs'),
+    db.clear('sets'),
+    db.clear('activeSession'),
+    db.clear('progressionTargets'),
+  ])
 }
