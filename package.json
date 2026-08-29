@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "15-Minute Full-Body Dumbbell Trainer — a local-first, installable PWA",
+  "description": "15-Minute Full-Body Dumbbell Trainer \u2014 a local-first, installable PWA",
+  "engines": {
+    "node": "^22.12.0 || >=24.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
