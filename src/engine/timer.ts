@@ -81,10 +81,34 @@ export interface PersistableTimerState {
   readonly durations: readonly number[]
 }
 
+/**
+ * Enough to rebuild an interrupted session (spec section 3.0.1).
+ *
+ * Position is stored as elapsed-within-segment rather than as a wall-clock
+ * start time, because the two cannot be reconciled after an arbitrary gap: a
+ * session saved while paused has a frozen position that its raw timestamps no
+ * longer describe. Storing the frozen position directly makes restoring exact
+ * whether the session was running or paused when it was interrupted.
+ */
+export interface RestoreState {
+  readonly index: number
+  readonly elapsedInSegmentMs: number
+  readonly workingTimeMs: number
+  readonly totalElapsedMs: number
+  /** Durations as they stood, so an extended rest survives the interruption. */
+  readonly durations: readonly number[]
+}
+
 export interface TimerEngineOptions {
   readonly segments: readonly Segment[]
   /** Injectable clock. Defaults to wall time; tests pass a fake. */
   readonly clock?: () => number
+  /**
+   * Rebuild an interrupted session instead of starting fresh. The engine comes
+   * back **paused**, always: never resume a live countdown into someone's
+   * pocket (spec section 3.0.1).
+   */
+  readonly restore?: RestoreState
   /**
    * An event fired more than this long after it was due is marked `missed`.
    * Comfortably above a normal display tick, far below any real backgrounding.
@@ -153,8 +177,12 @@ export interface TimerEngine {
 }
 
 export function createTimerEngine(options: TimerEngineOptions): TimerEngine {
-  const { segments, clock = () => Date.now(), missedThresholdMs = DEFAULT_MISSED_THRESHOLD_MS } =
-    options
+  const {
+    segments,
+    clock = () => Date.now(),
+    missedThresholdMs = DEFAULT_MISSED_THRESHOLD_MS,
+    restore,
+  } = options
 
   if (segments.length === 0) throw new Error('Cannot run a session with no segments')
 
@@ -169,11 +197,28 @@ export function createTimerEngine(options: TimerEngineOptions): TimerEngine {
   let startedAt = 0
   let endedAt: number | null = null
   /** Mutable so `extend()` can lengthen a single segment. */
-  const durations: number[] = segments.map((segment) => segment.durationMs)
+  const durations: number[] = restore
+    ? segments.map((segment, i) => restore.durations[i] ?? segment.durationMs)
+    : segments.map((segment) => segment.durationMs)
   /** Highest elapsed offset already observed in the current segment. */
   let lastElapsed = 0
   /** Events raised by control actions, drained by the next tick. */
   let pending: TimerEvent[] = []
+
+  if (restore) {
+    const now = clock()
+    status = 'paused'
+    index = Math.min(Math.max(0, restore.index), segments.length - 1)
+    // Synthesise timestamps that reproduce the saved position exactly, then
+    // freeze there. Resuming credits the whole gap to paused time, so the
+    // countdown continues from where it stopped rather than jumping.
+    segmentStartedAt = now - restore.elapsedInSegmentMs
+    pausedAccumulatedMs = 0
+    pausedAt = now
+    lastElapsed = restore.elapsedInSegmentMs
+    startedAt = now - restore.totalElapsedMs
+    totalPausedMs = Math.max(0, restore.totalElapsedMs - restore.workingTimeMs)
+  }
 
   const durationAt = (i: number): number => durations[i] ?? 0
 
@@ -308,7 +353,9 @@ export function createTimerEngine(options: TimerEngineOptions): TimerEngine {
     segments,
 
     start(): TickResult {
-      if (status !== 'idle') return tick()
+      // A restored session is already positioned and paused; starting it would
+      // throw that away and rewind to the first segment.
+      if (status !== 'idle') return drain()
       const now = clock()
       status = 'running'
       startedAt = now

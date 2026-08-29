@@ -7,6 +7,7 @@ import {
   type TimerSnapshot,
 } from '@/engine/timer'
 import { buildSegmentList, nextExerciseSegment, type Segment } from '@/engine/segments'
+import type { ActiveSessionRecord } from '@/persistence/db'
 import { getSessionTemplate, NO_BENCH_SUBSTITUTIONS } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
 import { prefillWeightKg } from '@/engine/progression'
@@ -214,6 +215,67 @@ export const useSessionStore = defineStore('session', () => {
     apply(engine.value.start())
   }
 
+  /**
+   * Rebuilds an interrupted session. Always comes back paused, so a countdown
+   * never resumes into someone's pocket (spec section 3.0.1).
+   */
+  function restoreFrom(record: ActiveSessionRecord, options: StartOptions = {}): void {
+    segments.value = record.segments
+    sessionId.value = record.sessionId
+    sessionLogId.value = record.sessionLogId
+    loggedSets.value = []
+    draft.value = null
+    allPrefillsUntouched.value = true
+
+    engine.value = createTimerEngine({
+      segments: record.segments,
+      ...(options.clock ? { clock: options.clock } : {}),
+      restore: {
+        index: record.segmentIndex,
+        elapsedInSegmentMs: record.elapsedInSegmentMs,
+        workingTimeMs: record.workingTimeMs,
+        totalElapsedMs: record.totalElapsedMs,
+        durations: record.segments.map((segment) => segment.durationMs),
+      },
+    })
+
+    snapshot.value = engine.value.snapshot()
+
+    // A session interrupted during a rest had an entry open; reopening it means
+    // the user does not silently lose the set they were part-way through.
+    const current = segments.value[record.segmentIndex]
+    if (current?.type === 'transition') openDraft(current)
+  }
+
+  /** Everything needed to rebuild this session after a crash. */
+  function persistableRecord(): ActiveSessionRecord | undefined {
+    const current = snapshot.value
+    const id = sessionLogId.value
+    const template = sessionId.value
+    if (!current || !id || !template || !engine.value) return undefined
+
+    const state = engine.value.persistableState()
+
+    return {
+      sessionLogId: id,
+      sessionId: template,
+      startedAt: new Date(Date.now() - current.totalElapsedMs).toISOString(),
+      // Durations are folded back into the segments so an extended rest
+      // survives; the engine keeps them in a parallel array while running.
+      segments: segments.value.map((segment, i) => ({
+        ...segment,
+        durationMs: state.durations[i] ?? segment.durationMs,
+      })),
+      segmentIndex: current.index,
+      elapsedInSegmentMs: current.elapsedInSegmentMs,
+      workingTimeMs: current.workingTimeMs,
+      totalElapsedMs: current.totalElapsedMs,
+      isPaused: current.isPaused,
+      setsLogged: loggedSets.value.map((set) => set.id),
+      savedAt: Date.now(),
+    }
+  }
+
   function tick(): void {
     if (engine.value) apply(engine.value.tick())
   }
@@ -338,6 +400,8 @@ export const useSessionStore = defineStore('session', () => {
     sessionLogId,
     // actions
     start,
+    restoreFrom,
+    persistableRecord,
     tick,
     pause,
     resume,

@@ -1,13 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, onMounted } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { useSessionRecovery } from '@/composables/useSessionRecovery'
+import ResumePrompt from '@/components/ResumePrompt.vue'
 import { SESSION_TEMPLATES, PROGRAM } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
 import { buildSegmentList, totalDurationMs } from '@/engine/segments'
 import { formatDuration } from '@/engine/format'
 
-// Until history exists (milestone 5) the next session is simply the first one.
+const router = useRouter()
+const recovery = useSessionRecovery()
+
+onMounted(() => void recovery.check())
+
 const nextSession = computed(() => SESSION_TEMPLATES[0]!)
+
+function resumeSession(): void {
+  const record = recovery.pending.value
+  if (!record) return
+  recovery.accept()
+  void router.push({
+    name: 'player',
+    params: { sessionId: record.sessionId },
+    query: { resume: '1' },
+  })
+}
 
 const plannedDuration = computed(() =>
   formatDuration(totalDurationMs(buildSegmentList(nextSession.value, { leadIn: false }))),
@@ -24,6 +41,14 @@ const circuitExercises = computed(() =>
       <h1 class="text-3xl font-bold tracking-tight">{{ PROGRAM.name }}</h1>
       <p class="mt-1 text-ink-muted">{{ PROGRAM.daysPerWeek }} sessions a week</p>
     </header>
+
+    <ResumePrompt
+      v-if="recovery.pending.value"
+      :record="recovery.pending.value"
+      class="mt-8"
+      @resume="resumeSession"
+      @discard="recovery.discard()"
+    />
 
     <section class="mt-8 rounded-2xl bg-surface-raised p-5">
       <p class="text-sm tracking-wide text-ink-muted uppercase">Next up</p>

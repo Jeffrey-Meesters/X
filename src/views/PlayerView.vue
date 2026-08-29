@@ -3,6 +3,9 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
 import { useSessionRunner } from '@/composables/useSessionRunner'
+import { usePersistence } from '@/composables/usePersistence'
+import { readActiveSession } from '@/persistence/db'
+import { useHistoryStore } from '@/stores/history'
 import { formatDuration, formatRepRange } from '@/engine/format'
 import { formatWeight, totalVolumeKg } from '@/engine/units'
 import { useSettingsStore } from '@/stores/settings'
@@ -20,10 +23,11 @@ const session = useSessionStore()
 const settingsStore = useSettingsStore()
 
 useSessionRunner()
+usePersistence()
 
 const templateId = computed(() => String(route.params.sessionId))
 
-onMounted(() => {
+onMounted(async () => {
   // Guard an unknown id from the URL rather than throwing on a bad bookmark.
   try {
     getSessionTemplate(templateId.value)
@@ -31,6 +35,21 @@ onMounted(() => {
     void router.replace('/')
     return
   }
+
+  // History has to be loaded before the first weight entry opens, or the
+  // pre-fill would fall back to the calibration floor on a user who has months
+  // of sessions behind them.
+  await useHistoryStore().load()
+
+  // ?resume=1 is set by the recovery prompt on the home screen.
+  if (route.query.resume === '1') {
+    const record = await readActiveSession().catch(() => undefined)
+    if (record && record.sessionId === templateId.value) {
+      session.restoreFrom(record)
+      return
+    }
+  }
+
   session.start(templateId.value)
 })
 
