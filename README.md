@@ -12,7 +12,7 @@ accounts, and the app works fully offline after the first load.
 Under construction, built in milestones against the product spec.
 
 - [x] **1 — Scaffold**: toolchain, data model, seeded exercise library and both sessions
-- [ ] 2 — Timer engine
+- [x] **2 — Timer engine**: pure state machine, injected clock, backgrounding catch-up
 - [ ] 3 — Session player UI
 - [ ] 4 — Set logging
 - [ ] 5 — Persistence, history and crash recovery
@@ -64,6 +64,28 @@ src/
 
 Side effects stay out of the stores. Audio, wake lock, vibration and persistence
 are driven from composables that watch store state.
+
+### Timer engine invariants
+
+Four rules in `src/engine/timer.ts` are load-bearing. Breaking any of them
+produces bugs that only show up on a real phone, mid-session:
+
+1. **Boundaries are derived by arithmetic, never from `now`.** When a segment
+   ends, the next one starts at `previousStart + duration + pausedTime`. Using
+   the current time instead would push the whole remaining session later by
+   however long a backgrounded tab was throttled.
+2. **Events carry a `missed` flag** rather than being filtered. Audio and
+   haptics drop missed cues, so returning to a hidden tab does not replay a
+   burst of beeps, while the UI still uses them to move state forward.
+3. **Two pause counters.** `pausedAccumulatedMs` is per segment and resets on
+   every transition; `totalPausedMs` spans the session and feeds the summary's
+   working-time-versus-total-elapsed split.
+4. **`extend()` lengthens only the current segment.** Later segments keep their
+   own durations and simply shift in wall-clock time.
+
+Auto-commit of a logged set needs no special suppression: pausing blocks
+advancement, so a transition segment cannot end while paused, and the commit
+that fires on its end therefore cannot either.
 
 ## Toolchain notes
 
