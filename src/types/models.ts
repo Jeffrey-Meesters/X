@@ -94,6 +94,16 @@ export interface LoggedSet {
   readonly reps: number
   /** Reps in reserve. Null when the user has the optional selector switched off. */
   readonly rir: number | null
+  /**
+   * The user actively confirmed this set - adjusted a value, or tapped Next -
+   * rather than letting the rest countdown auto-commit it untouched.
+   *
+   * Progression suggestions require it. A set logged entirely passively records
+   * the target reps as its best estimate of what happened, which is honest, but
+   * it is not evidence the user cleared the range, and automatically escalating
+   * load off a number nobody entered is exactly what should not happen.
+   */
+  readonly confirmed: boolean
   readonly completedAt: string
 }
 

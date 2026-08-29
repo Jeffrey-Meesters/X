@@ -9,5 +9,12 @@
     "noEmit": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo"
   },
-  "include": ["src/**/*.test.ts", "src/test-setup.ts", "vitest.config.ts"]
+  // `exclude` is inherited through `extends` and applied after `include`, so
+  // without clearing it the app config's exclusion of test files would empty
+  // this project entirely - and an empty project type-checks clean, silently.
+  "exclude": [],
+  // A composite project must list every file it pulls in, so this mirrors the
+  // app's sources and adds the tests. App code is still checked DOM-only by
+  // tsconfig.app.json, so a stray `process` in a component is caught there.
+  "include": ["src/**/*.ts", "src/**/*.vue", "vitest.config.ts"]
 }

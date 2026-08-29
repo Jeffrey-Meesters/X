@@ -9,7 +9,12 @@ import {
 import { calibrationFloor, lbToKg, toDisplay } from './units'
 import type { LoggedSet } from '@/types/models'
 
-function set(weightKg: number, reps: number, exerciseId = 'goblet-squat'): LoggedSet {
+function set(
+  weightKg: number,
+  reps: number,
+  exerciseId = 'goblet-squat',
+  confirmed = true,
+): LoggedSet {
   return {
     id: crypto.randomUUID(),
     sessionLogId: 'log-1',
@@ -18,9 +23,13 @@ function set(weightKg: number, reps: number, exerciseId = 'goblet-squat'): Logge
     weightKg,
     reps,
     rir: null,
+    confirmed,
     completedAt: '2026-08-29T09:00:00.000Z',
   }
 }
+
+/** A set the countdown committed on its own, with nothing the user entered. */
+const passive = (weightKg: number, reps: number) => set(weightKg, reps, 'goblet-squat', false)
 
 describe('prefill', () => {
   it('falls back to the calibration floor with no history', () => {
@@ -55,6 +64,19 @@ describe('hitting the top of the range', () => {
   it('counts exceeding the top as hitting it', () => {
     expect(hitTopOfRange([set(20, 14), set(20, 13), set(20, 12)], [8, 12], 3)).toBe(true)
   })
+
+  it('does not count sets the user never confirmed', () => {
+    // Reps default to the top of the range, so a passively logged set always
+    // reads as a clean sweep. Treating that as evidence would offer a heavier
+    // weight every session off numbers the app filled in itself.
+    expect(hitTopOfRange([passive(20, 12), passive(20, 12), passive(20, 12)], [8, 12], 3)).toBe(
+      false,
+    )
+  })
+
+  it('needs every round confirmed, not just one', () => {
+    expect(hitTopOfRange([set(20, 12), passive(20, 12), set(20, 12)], [8, 12], 3)).toBe(false)
+  })
 })
 
 describe('progression suggestions', () => {
@@ -69,6 +91,17 @@ describe('progression suggestions', () => {
     const suggestion = suggestProgression({
       ...base,
       sets: [set(20, 12), set(20, 10), set(20, 12)],
+      completedSessionCount: 10,
+      prefillUntouched: true,
+    })
+    expect(suggestion).toBeUndefined()
+  })
+
+  it('offers nothing when the whole session was logged passively', () => {
+    // The headline rule: the passive path must never inflate the weight.
+    const suggestion = suggestProgression({
+      ...base,
+      sets: [passive(20, 12), passive(20, 12), passive(20, 12)],
       completedSessionCount: 10,
       prefillUntouched: true,
     })

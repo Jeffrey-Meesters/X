@@ -28,6 +28,13 @@ export interface SetDraft {
   rir: number | null
   /** Whether the user changed the pre-filled weight. Drives the ramp-up rule. */
   touched: boolean
+  /**
+   * Whether the user engaged with this entry at all, by any route. Distinct
+   * from `touched`, which is specifically about the weight: confirming a set
+   * unchanged is still a signal, changing the weight is additionally a reason
+   * not to offer a doubled increment.
+   */
+  confirmed: boolean
   /** No previous weight existed, so this is a calibration entry. */
   readonly isCalibration: boolean
 }
@@ -121,6 +128,7 @@ export const useSessionStore = defineStore('session', () => {
       reps: work.targetReps?.[1] ?? 0,
       rir: null,
       touched: false,
+      confirmed: false,
       isCalibration: lastSessionSets.length === 0,
     }
   }
@@ -139,6 +147,7 @@ export const useSessionStore = defineStore('session', () => {
       weightKg: open.weightKg,
       reps: open.reps,
       rir: open.rir,
+      confirmed: open.confirmed,
       completedAt: new Date().toISOString(),
     }
 
@@ -325,6 +334,7 @@ export const useSessionStore = defineStore('session', () => {
       settingsStore.settings.units,
     )
     open.touched = true
+    open.confirmed = true
   }
 
   /** Direct entry from the numeric keypad fallback, in display units. */
@@ -334,20 +344,26 @@ export const useSessionStore = defineStore('session', () => {
     const settingsStore = useSettingsStore()
     open.weightKg = fromDisplay(Math.max(0, value), settingsStore.settings.units)
     open.touched = true
+    open.confirmed = true
   }
 
   function adjustReps(delta: number): void {
     const open = draft.value
     if (!open) return
     open.reps = Math.max(0, open.reps + delta)
+    open.confirmed = true
   }
 
   function setRir(value: number | null): void {
-    if (draft.value) draft.value.rir = value
+    if (!draft.value) return
+    draft.value.rir = value
+    draft.value.confirmed = true
   }
 
   /** The Next button: log the set and move on without waiting out the rest. */
   function commitAndAdvance(): void {
+    // Tapping Next is itself a confirmation, even with nothing changed.
+    if (draft.value) draft.value.confirmed = true
     commitDraft()
     skipForward()
   }
