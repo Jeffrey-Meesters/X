@@ -17,7 +17,7 @@ Under construction, built in milestones against the product spec.
 - [x] **4 — Set logging**: pre-fill, stepper, auto-commit, calibration session
 - [x] **5 — Persistence**: IndexedDB, autosave, resume-or-discard
 - [x] **6 — Onboarding**: three questions, safety acknowledgement, settings
-- [ ] 7 — Audio, voice, haptics, wake lock
+- [x] **7 — Cues**: generated tones, voice, haptics, wake lock
 - [ ] 8 — SVG movement animations
 - [ ] 9 — Charts, progression nudges, weekly summary
 - [ ] 10 — PWA shell, offline, export/import
@@ -127,6 +127,29 @@ The recovery row stores the segment list itself rather than rebuilding it, since
 a changed lead-in or bench answer would shift every index. Position is stored as
 elapsed-within-segment rather than a start timestamp, because a session saved
 while paused has a frozen position its raw timestamps no longer describe.
+
+### Cues
+
+Tones are synthesised with the Web Audio API rather than shipped as files:
+nothing to fetch, nothing to cache offline, a few hundred bytes instead of a few
+hundred kilobytes. Each cue differs in pitch, length and shape rather than only
+in volume, so it is identifiable without looking at the phone.
+
+Two things here are less obvious than they look:
+
+- **The AudioContext is created on the tap on Start, on the home screen** — not
+  in the player. A context constructed outside a user gesture starts suspended
+  and stays that way on iOS, and the player mounts *after* navigation, which is
+  too late. That is why the player holds one module-scoped instance rather than
+  creating its own.
+- **This is where the `missed` flag earns its keep.** Cues are dropped when an
+  event fired materially later than it was due, so coming back to a slept phone
+  does not replay a dozen beeps for intervals that already went by. There is an
+  end-to-end test that fast-forwards ten minutes and asserts at most one tone.
+
+Sound, voice, vibration and wake lock are four independent toggles: a gym is
+noisy, and someone with headphones on may want a buzz without a voice talking
+over their music.
 
 ## Toolchain notes
 

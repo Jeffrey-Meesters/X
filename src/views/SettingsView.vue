@@ -24,6 +24,13 @@ function setUnits(units: Units): void {
   settingsStore.update({ units, weightIncrement: units === 'kg' ? 2.5 : 5 })
 }
 
+const cueToggles = [
+  { key: 'audioCues', label: 'Sound cues' },
+  { key: 'voiceAnnouncements', label: 'Voice announcements' },
+  { key: 'haptics', label: 'Vibration' },
+  { key: 'keepScreenAwake', label: 'Keep screen awake' },
+] as const
+
 const showSafety = ref(false)
 
 const acknowledgedOn = computed(() => {
@@ -117,6 +124,29 @@ const acknowledgedOn = computed(() => {
           class="h-6 w-6"
           :checked="settings.showRir"
           @change="settingsStore.update({ showRir: ($event.target as HTMLInputElement).checked })"
+        />
+      </label>
+    </section>
+
+    <section class="mt-6" aria-labelledby="cues-heading">
+      <h2 id="cues-heading" class="text-sm tracking-wide text-ink-muted uppercase">Cues</h2>
+      <!-- Individually toggleable: someone training with headphones on may want
+           haptics without tones, or tones without a voice talking over music. -->
+      <label
+        v-for="cue in cueToggles"
+        :key="cue.key"
+        class="mt-3 flex min-h-14 items-center justify-between rounded-xl bg-surface-raised px-4 first:mt-2"
+      >
+        <span class="text-lg">{{ cue.label }}</span>
+        <input
+          type="checkbox"
+          class="h-6 w-6"
+          :checked="settings[cue.key]"
+          @change="
+            settingsStore.update({
+              [cue.key]: ($event.target as HTMLInputElement).checked,
+            })
+          "
         />
       </label>
     </section>
