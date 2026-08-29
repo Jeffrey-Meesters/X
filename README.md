@@ -15,8 +15,8 @@ Under construction, built in milestones against the product spec.
 - [x] **2 — Timer engine**: pure state machine, injected clock, backgrounding catch-up
 - [x] **3 — Session player UI**: full-screen player, pause, skip, rest extensions
 - [x] **4 — Set logging**: pre-fill, stepper, auto-commit, calibration session
-- [ ] 5 — Persistence, history and crash recovery
-- [ ] 6 — Onboarding and safety acknowledgement
+- [x] **5 — Persistence**: IndexedDB, autosave, resume-or-discard
+- [x] **6 — Onboarding**: three questions, safety acknowledgement, settings
 - [ ] 7 — Audio, voice, haptics, wake lock
 - [ ] 8 — SVG movement animations
 - [ ] 9 — Charts, progression nudges, weekly summary
@@ -104,6 +104,29 @@ milliseconds, but two details matter:
 Long advances use `fastForward` rather than `runFor`: it fires each timer at
 most once instead of one per 100ms, which is both far cheaper and the realistic
 "screen went to sleep" path through the engine's catch-up logic.
+
+### Persistence
+
+IndexedDB holds session logs, sets, and a single crash-recovery row; settings
+stay in `localStorage` because the player needs them synchronously on boot.
+
+Three things here are easy to get wrong:
+
+- **Strip reactivity before writing.** IndexedDB's structured clone throws
+  `DataCloneError` on a Vue proxy. `src/persistence/db.ts` round-trips every
+  record through JSON at the boundary. Without it, writes fail in a way that
+  looks exactly like a browser with storage disabled.
+- **Persistence failures are non-fatal but never silent.** A workout must not
+  stop because a write did, but a bare `catch {}` hides real bugs, so every
+  swallowed failure is logged.
+- **Writes are serialised through one promise chain.** The last tick of a
+  session emits `segment-end` and `complete` together; run in parallel, the
+  save could land after the clear and offer a finished workout for resume.
+
+The recovery row stores the segment list itself rather than rebuilding it, since
+a changed lead-in or bench answer would shift every index. Position is stored as
+elapsed-within-segment rather than a start timestamp, because a session saved
+while paused has a frozen position its raw timestamps no longer describe.
 
 ## Toolchain notes
 

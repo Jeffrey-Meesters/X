@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
+import { seedSettings, ONBOARDED } from './helpers'
 
 test('home screen offers the next session', async ({ page }) => {
+  await seedSettings(page, ONBOARDED)
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: '15-Minute Full Body' })).toBeVisible()
@@ -9,6 +11,7 @@ test('home screen offers the next session', async ({ page }) => {
 })
 
 test('start navigates into the player', async ({ page }) => {
+  await seedSettings(page, ONBOARDED)
   await page.goto('/')
   await page.getByRole('link', { name: /Start Session A/ }).click()
 

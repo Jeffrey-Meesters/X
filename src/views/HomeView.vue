@@ -1,20 +1,52 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
-import { SESSION_TEMPLATES, PROGRAM } from '@/data/sessions'
+import { computed, onMounted } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { useSessionRecovery } from '@/composables/useSessionRecovery'
+import ResumePrompt from '@/components/ResumePrompt.vue'
+import { SESSION_TEMPLATES, PROGRAM, substitutionsFor } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
 import { buildSegmentList, totalDurationMs } from '@/engine/segments'
 import { formatDuration } from '@/engine/format'
+import { useSettingsStore } from '@/stores/settings'
 
-// Until history exists (milestone 5) the next session is simply the first one.
+const router = useRouter()
+const settingsStore = useSettingsStore()
+const recovery = useSessionRecovery()
+
+onMounted(() => void recovery.check())
+
 const nextSession = computed(() => SESSION_TEMPLATES[0]!)
 
-const plannedDuration = computed(() =>
-  formatDuration(totalDurationMs(buildSegmentList(nextSession.value, { leadIn: false }))),
-)
+function resumeSession(): void {
+  const record = recovery.pending.value
+  if (!record) return
+  recovery.accept()
+  void router.push({
+    name: 'player',
+    params: { sessionId: record.sessionId },
+    query: { resume: '1' },
+  })
+}
+
+/**
+ * Built the same way the player builds it, so the preview lists the exercises
+ * the user is actually going to do. Reading the raw template instead would
+ * promise a bench press to someone who told us they have no bench.
+ */
+const previewSegments = computed(() => {
+  const substitutions = substitutionsFor(settingsStore.settings.hasBench)
+  return buildSegmentList(nextSession.value, {
+    leadIn: false,
+    ...(substitutions ? { substitutions } : {}),
+  })
+})
+
+const plannedDuration = computed(() => formatDuration(totalDurationMs(previewSegments.value)))
 
 const circuitExercises = computed(() =>
-  nextSession.value.circuit.exercises.map((entry) => getExercise(entry.exerciseId)),
+  previewSegments.value
+    .filter((segment) => segment.type === 'work' && segment.round === 1)
+    .map((segment) => getExercise(segment.exerciseId)),
 )
 </script>
 
@@ -24,6 +56,14 @@ const circuitExercises = computed(() =>
       <h1 class="text-3xl font-bold tracking-tight">{{ PROGRAM.name }}</h1>
       <p class="mt-1 text-ink-muted">{{ PROGRAM.daysPerWeek }} sessions a week</p>
     </header>
+
+    <ResumePrompt
+      v-if="recovery.pending.value"
+      :record="recovery.pending.value"
+      class="mt-8"
+      @resume="resumeSession"
+      @discard="recovery.discard()"
+    />
 
     <section class="mt-8 rounded-2xl bg-surface-raised p-5">
       <p class="text-sm tracking-wide text-ink-muted uppercase">Next up</p>

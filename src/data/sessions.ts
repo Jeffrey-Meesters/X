@@ -86,3 +86,12 @@ export const NO_BENCH_SUBSTITUTIONS: Readonly<Record<string, string>> = {
   // substitution target, so it is named here for completeness and is a no-op.
   'db-chest-fly': 'db-chest-fly',
 }
+
+/**
+ * The substitution map for a user's equipment, or undefined when nothing needs
+ * swapping. Shared so the home screen and the running session cannot disagree
+ * about which exercises the user is actually going to do.
+ */
+export function substitutionsFor(hasBench: boolean): Readonly<Record<string, string>> | undefined {
+  return hasBench ? undefined : NO_BENCH_SUBSTITUTIONS
+}

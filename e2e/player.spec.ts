@@ -1,36 +1,14 @@
 import { test, expect, type Page } from '@playwright/test'
-
-/** Fixed start time so every assertion below is deterministic. */
-const T0 = new Date('2026-08-29T09:00:00Z')
-/**
- * `install()` leaves the clock ticking, and `pauseAt()` is a second round trip,
- * so by the time it lands the fake clock has already moved past T0. Pausing at
- * an instant comfortably in the future removes that race. Nothing is loaded
- * yet, so no application timer fires while crossing the gap.
- */
-const FROZEN_AT = new Date(T0.getTime() + 60_000)
+import { openFrozen, seedSettings, ONBOARDED } from './helpers'
 
 /**
- * `page.clock` fast-forwards the browser's own clock, so a full 14:30 session
- * runs in milliseconds rather than a quarter of an hour.
- *
- * `install()` alone is not enough: it fakes the clock but leaves it ticking at
- * real time, which makes every countdown assertion a race. `pauseAt()` freezes
- * it, and it has to happen before navigation so the page is frozen from its
- * very first paint.
+ * The route component is lazy-loaded, so the app can still be mounting when
+ * `goto` resolves. Every clock call depends on the runner's interval already
+ * being registered - advancing a frozen clock before that leaves no timer to
+ * fire, and it never fires afterwards either.
  */
 async function openPlayer(page: Page, settings: Record<string, unknown> = {}) {
-  await page.clock.install({ time: T0 })
-  await page.clock.pauseAt(FROZEN_AT)
-  await page.addInitScript((value) => {
-    localStorage.setItem('fullbody15.settings', JSON.stringify(value))
-  }, settings)
-  await page.goto('/session/session-a')
-
-  // The route component is lazy-loaded, so the app can still be mounting when
-  // `goto` resolves. Every clock call below depends on the runner's interval
-  // already being registered - advancing a frozen clock before that leaves no
-  // timer to fire, and it never fires afterwards either.
+  await openFrozen(page, '/session/session-a', settings)
   await expect(page.getByTestId('countdown')).toBeVisible()
 }
 
@@ -159,6 +137,7 @@ test('a paused session reports work and elapsed time separately', async ({ page 
 })
 
 test('an unknown session id falls back to home', async ({ page }) => {
+  await seedSettings(page, ONBOARDED)
   await page.goto('/session/does-not-exist')
   await expect(page).toHaveURL(/\/$/)
 })
