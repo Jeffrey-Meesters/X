@@ -37,12 +37,17 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-  # TypeScript is pinned to 5.9.3 because vue-tsc 3.3.11 crashes on the TS 7
-  # native port (it patches typescript/lib/tsc, which TS 7 no longer exports).
-  # This job tells us when that stops being true, without blocking anything.
+  # TypeScript is pinned to 5.9.3 because vue-tsc crashes on the TS 7 native
+  # port: it patches typescript/lib/tsc, which TS 7 no longer exports.
+  #
+  # The assertion is deliberately inverted. This job PASSES while the pin is
+  # still needed and FAILS when vue-tsc finally works against typescript@latest,
+  # because that is the only outcome anyone has to act on. Reporting the
+  # expected incompatibility as a failure would paint every pull request red
+  # forever, which just teaches people to stop reading CI.
   typescript-canary:
+    name: TypeScript pin canary
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,8 +55,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Try vue-tsc against the latest TypeScript
+      - name: Can the TypeScript 5.9.3 pin be lifted yet?
         run: |
           npm install --no-save typescript@latest
-          echo "Testing against TypeScript $(npx tsc --version)"
-          npm run type-check
+          version="$(npx tsc --version)"
+          echo "Testing vue-tsc against $version"
+
+          if npm run type-check; then
+            echo "::error::vue-tsc now type-checks cleanly against $version. The TypeScript 5.9.3 pin in package.json can be lifted - see issue #5."
+            exit 1
+          fi
+
+          echo "::notice::vue-tsc still cannot run against $version, so the TypeScript 5.9.3 pin stays. See issue #5."
