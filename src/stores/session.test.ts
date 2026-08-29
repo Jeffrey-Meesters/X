@@ -407,6 +407,53 @@ describe('set logging', () => {
     expect(history.sessionLogs[0]?.endedAt).not.toBeNull()
   })
 
+  it('marks an auto-committed set as unconfirmed', () => {
+    const { clock, store } = toFirstRest()
+    run(clock, store, 20_000) // rest expires with nothing touched
+
+    // Logged, because the work was done - but not evidence of anything the
+    // user told us, so it cannot earn a weight increase.
+    expect(store.loggedSets).toHaveLength(1)
+    expect(store.loggedSets[0]?.confirmed).toBe(false)
+  })
+
+  it('marks a set confirmed once the user adjusts the weight', () => {
+    const { clock, store } = toFirstRest()
+    store.adjustWeight(1)
+    run(clock, store, 20_000)
+
+    expect(store.loggedSets[0]?.confirmed).toBe(true)
+  })
+
+  it('marks a set confirmed once the user adjusts the reps', () => {
+    const { clock, store } = toFirstRest()
+    store.adjustReps(-2)
+    run(clock, store, 20_000)
+
+    expect(store.loggedSets[0]?.confirmed).toBe(true)
+  })
+
+  it('treats tapping Next as a confirmation even with nothing changed', () => {
+    const { store } = toFirstRest()
+    store.commitAndAdvance()
+
+    expect(store.loggedSets[0]?.confirmed).toBe(true)
+    expect(store.loggedSets[0]?.reps).toBe(12)
+  })
+
+  it('a fully hands-free session earns no progression', () => {
+    const clock = fakeClock()
+    const store = useSessionStore()
+    useSettingsStore().update({ leadIn: false })
+    store.start('session-a', { clock: clock.now })
+
+    // Phone on the floor, never touched: exactly the case that must not
+    // silently escalate the weight next time.
+    run(clock, store, 870_000)
+    expect(store.loggedSets).toHaveLength(12)
+    expect(store.loggedSets.every((set) => !set.confirmed)).toBe(true)
+  })
+
   it('tracks whether every pre-fill was left alone, for the ramp-up rule', () => {
     const { clock, store } = toFirstRest()
     expect(store.allPrefillsUntouched).toBe(true)

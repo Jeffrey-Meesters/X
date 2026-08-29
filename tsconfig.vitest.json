@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    // Tests need both worlds: they render DOM components and, for the
+    // animation convention checks, read the source files off disk.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "composite": true,
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo"
+  },
+  // `exclude` is inherited through `extends` and applied after `include`, so
+  // without clearing it the app config's exclusion of test files would empty
+  // this project entirely - and an empty project type-checks clean, silently.
+  "exclude": [],
+  // A composite project must list every file it pulls in, so this mirrors the
+  // app's sources and adds the tests. App code is still checked DOM-only by
+  // tsconfig.app.json, so a stray `process` in a component is caught there.
+  "include": ["src/**/*.ts", "src/**/*.vue", "vitest.config.ts"]
+}

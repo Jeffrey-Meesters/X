@@ -57,6 +57,7 @@ function set(id: string, logId: string, exerciseId: string, weightKg: number): L
     weightKg,
     reps: 10,
     rir: null,
+    confirmed: true,
     completedAt: '2026-08-29T09:00:00.000Z',
   }
 }

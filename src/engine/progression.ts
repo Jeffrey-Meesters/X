@@ -37,11 +37,19 @@ export function isCalibrationSession(completedSessionCount: number): boolean {
   return completedSessionCount === 0
 }
 
-/** True when every logged round reached the top of the prescribed range. */
+/**
+ * True when every logged round reached the top of the prescribed range *and*
+ * the user confirmed it.
+ *
+ * The confirmation requirement is what stops the passive path inflating load.
+ * Reps default to the top of the range, so a user who never touches the entry
+ * would otherwise satisfy this condition every single session and be offered a
+ * heavier weight each time, purely from numbers the app filled in itself.
+ */
 export function hitTopOfRange(sets: readonly LoggedSet[], range: RepRange, rounds: number): boolean {
   if (sets.length < rounds) return false
   const [, top] = range
-  return sets.every((set) => set.reps >= top)
+  return sets.every((set) => set.confirmed && set.reps >= top)
 }
 
 export interface SuggestionInput {
