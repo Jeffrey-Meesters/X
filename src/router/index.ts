@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useSettingsStore } from '@/stores/settings'
 
 /**
  * Views are lazy-loaded except Home, so the first paint on a cold start stays
@@ -15,6 +16,20 @@ const router = createRouter({
     { path: '/onboarding', name: 'onboarding', component: () => import('@/views/OnboardingView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
+})
+
+/**
+ * First run goes to onboarding, and nothing else is reachable until the safety
+ * acknowledgement has been tapped (spec section 10). Settings is deliberately
+ * not exempt: there is nothing there to configure before the app is set up.
+ */
+router.beforeEach((to) => {
+  const settingsStore = useSettingsStore()
+  const needsOnboarding = settingsStore.settings.safetyAcknowledgedAt === null
+
+  if (needsOnboarding && to.name !== 'onboarding') return { name: 'onboarding' }
+  if (!needsOnboarding && to.name === 'onboarding') return { name: 'home' }
+  return true
 })
 
 export default router

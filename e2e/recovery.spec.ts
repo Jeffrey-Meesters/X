@@ -1,16 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
-
-const T0 = new Date('2026-08-29T09:00:00Z')
-const FROZEN_AT = new Date(T0.getTime() + 60_000)
-
-async function open(page: Page, path: string, settings: Record<string, unknown> = {}) {
-  await page.clock.install({ time: T0 })
-  await page.clock.pauseAt(FROZEN_AT)
-  await page.addInitScript((value) => {
-    localStorage.setItem('fullbody15.settings', JSON.stringify(value))
-  }, settings)
-  await page.goto(path)
-}
+import { test, expect } from '@playwright/test'
+import { openFrozen as open } from './helpers'
 
 test('an interrupted session is offered back after a reload', async ({ page }) => {
   await open(page, '/session/session-a', { leadIn: false })

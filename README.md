@@ -16,7 +16,7 @@ Under construction, built in milestones against the product spec.
 - [x] **3 — Session player UI**: full-screen player, pause, skip, rest extensions
 - [x] **4 — Set logging**: pre-fill, stepper, auto-commit, calibration session
 - [x] **5 — Persistence**: IndexedDB, autosave, resume-or-discard
-- [ ] 6 — Onboarding and safety acknowledgement
+- [x] **6 — Onboarding**: three questions, safety acknowledgement, settings
 - [ ] 7 — Audio, voice, haptics, wake lock
 - [ ] 8 — SVG movement animations
 - [ ] 9 — Charts, progression nudges, weekly summary
