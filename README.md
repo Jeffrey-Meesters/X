@@ -14,7 +14,7 @@ Under construction, built in milestones against the product spec.
 - [x] **1 — Scaffold**: toolchain, data model, seeded exercise library and both sessions
 - [x] **2 — Timer engine**: pure state machine, injected clock, backgrounding catch-up
 - [x] **3 — Session player UI**: full-screen player, pause, skip, rest extensions
-- [ ] 4 — Set logging
+- [x] **4 — Set logging**: pre-fill, stepper, auto-commit, calibration session
 - [ ] 5 — Persistence, history and crash recovery
 - [ ] 6 — Onboarding and safety acknowledgement
 - [ ] 7 — Audio, voice, haptics, wake lock

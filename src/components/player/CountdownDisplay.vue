@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { formatCountdown } from '@/engine/format'
 
-const props = defineProps<{ remainingMs: number; dimmed: boolean }>()
+const props = defineProps<{ remainingMs: number; dimmed: boolean; compact?: boolean }>()
 
 const display = computed(() => formatCountdown(props.remainingMs))
 </script>
@@ -13,8 +13,8 @@ const display = computed(() => formatCountdown(props.remainingMs))
   <p
     data-testid="countdown"
     class="tabular text-center leading-none font-black tracking-tighter transition-opacity"
-    :class="dimmed ? 'opacity-40' : 'opacity-100'"
-    style="font-size: var(--text-countdown)"
+    :class="[dimmed ? 'opacity-40' : 'opacity-100', compact ? 'text-6xl' : '']"
+    :style="compact ? undefined : 'font-size: var(--text-countdown)'"
   >
     {{ display }}
   </p>

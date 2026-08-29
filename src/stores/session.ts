@@ -9,7 +9,27 @@ import {
 import { buildSegmentList, nextExerciseSegment, type Segment } from '@/engine/segments'
 import { getSessionTemplate, NO_BENCH_SUBSTITUTIONS } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
+import { prefillWeightKg } from '@/engine/progression'
+import { fromDisplay, stepWeight } from '@/engine/units'
+import type { LoggedSet, RepRange } from '@/types/models'
+import { PROGRAM } from '@/data/sessions'
 import { useSettingsStore } from './settings'
+import { useHistoryStore } from './history'
+
+/** An in-progress weight entry, open during the rest after a work interval. */
+export interface SetDraft {
+  readonly segmentIndex: number
+  readonly exerciseId: string
+  readonly round: number
+  readonly targetReps: RepRange
+  weightKg: number
+  reps: number
+  rir: number | null
+  /** Whether the user changed the pre-filled weight. Drives the ramp-up rule. */
+  touched: boolean
+  /** No previous weight existed, so this is a calibration entry. */
+  readonly isCalibration: boolean
+}
 
 export interface StartOptions {
   /** Injected for tests so a 14:30 session does not take 14:30. */
@@ -28,6 +48,13 @@ export const useSessionStore = defineStore('session', () => {
   const segments = shallowRef<readonly Segment[]>([])
   const snapshot = ref<TimerSnapshot | null>(null)
   const sessionId = ref<string | null>(null)
+  const sessionLogId = ref<string | null>(null)
+
+  const draft = ref<SetDraft | null>(null)
+  /** Sets logged during this session, in order. */
+  const loggedSets = ref<LoggedSet[]>([])
+  /** True while the user has left every pre-filled weight alone this session. */
+  const allPrefillsUntouched = ref(true)
 
   const listeners = new Set<(event: TimerEvent) => void>()
 
@@ -38,10 +65,85 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function apply(result: { snapshot: TimerSnapshot; events: readonly TimerEvent[] }): void {
+    const wasComplete = snapshot.value?.status === 'complete'
     snapshot.value = result.snapshot
+
+    for (const event of result.events) {
+      // A rest beginning is where the set just finished gets logged.
+      if (event.kind === 'segment-start') {
+        const segment = segments.value[event.segmentIndex]
+        if (segment?.type === 'transition') openDraft(segment)
+      }
+    }
+
+    // Reconciling against the snapshot rather than only against a segment-end
+    // event covers every route out of a rest: the countdown reaching zero, a
+    // manual skip, and catching up through several segments after the tab was
+    // hidden. A draft that is no longer on screen has to be committed.
+    const current = snapshot.value
+    const open = draft.value
+    if (open && (!current || current.index !== open.segmentIndex)) commitDraft()
+
+    // Reaching the end closes the log exactly once, however it was reached.
+    if (!wasComplete && result.snapshot.status === 'complete') finishLog(true)
+
     for (const event of result.events) {
       for (const listener of listeners) listener(event)
     }
+  }
+
+  function openDraft(transition: Segment): void {
+    // Catching up through a hidden tab can start several rests in one tick.
+    // Committing the outgoing draft first means each set is kept at its
+    // pre-filled weight rather than being overwritten by the next one.
+    if (draft.value) commitDraft()
+
+    const history = useHistoryStore()
+    const settingsStore = useSettingsStore()
+
+    // The work interval this rest belongs to is the segment just before it.
+    const work = segments.value[transition.index - 1]
+    if (!work || work.type !== 'work') return
+
+    const lastSessionSets = history.lastSessionSetsFor(
+      work.exerciseId,
+      sessionLogId.value ?? undefined,
+    )
+
+    draft.value = {
+      segmentIndex: transition.index,
+      exerciseId: work.exerciseId,
+      round: work.round ?? 1,
+      targetReps: work.targetReps ?? [8, 12],
+      weightKg: prefillWeightKg({ lastSessionSets, units: settingsStore.settings.units }),
+      // Reps default to the target; the user taps down if they fell short.
+      reps: work.targetReps?.[1] ?? 0,
+      rir: null,
+      touched: false,
+      isCalibration: lastSessionSets.length === 0,
+    }
+  }
+
+  /** Writes the open draft to history. Safe to call when nothing is open. */
+  function commitDraft(): void {
+    const open = draft.value
+    if (!open) return
+    draft.value = null
+
+    const set: LoggedSet = {
+      id: crypto.randomUUID(),
+      sessionLogId: sessionLogId.value ?? '',
+      exerciseId: open.exerciseId,
+      round: open.round,
+      weightKg: open.weightKg,
+      reps: open.reps,
+      rir: open.rir,
+      completedAt: new Date().toISOString(),
+    }
+
+    loggedSets.value = [...loggedSets.value, set]
+    if (open.touched) allPrefillsUntouched.value = false
+    void useHistoryStore().addSet(set)
   }
 
   const status = computed(() => snapshot.value?.status ?? 'idle')
@@ -89,6 +191,21 @@ export const useSessionStore = defineStore('session', () => {
 
     segments.value = list
     sessionId.value = templateId
+    sessionLogId.value = crypto.randomUUID()
+    loggedSets.value = []
+    draft.value = null
+    allPrefillsUntouched.value = true
+
+    void useHistoryStore().startSessionLog({
+      id: sessionLogId.value,
+      programId: PROGRAM.id,
+      sessionId: templateId,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+      completed: false,
+      sets: [],
+    })
+
     engine.value = createTimerEngine({
       segments: list,
       ...(options.clock ? { clock: options.clock } : {}),
@@ -127,7 +244,63 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function end(): void {
-    if (engine.value) apply(engine.value.end())
+    if (!engine.value) return
+    // Whatever was entered but not yet committed still counts as completed work.
+    commitDraft()
+    apply(engine.value.end())
+    finishLog(false)
+  }
+
+  function adjustWeight(direction: 1 | -1): void {
+    const open = draft.value
+    if (!open) return
+    const settingsStore = useSettingsStore()
+    open.weightKg = stepWeight(
+      open.weightKg,
+      settingsStore.settings.weightIncrement,
+      direction,
+      settingsStore.settings.units,
+    )
+    open.touched = true
+  }
+
+  /** Direct entry from the numeric keypad fallback, in display units. */
+  function setWeightFromDisplay(value: number): void {
+    const open = draft.value
+    if (!open) return
+    const settingsStore = useSettingsStore()
+    open.weightKg = fromDisplay(Math.max(0, value), settingsStore.settings.units)
+    open.touched = true
+  }
+
+  function adjustReps(delta: number): void {
+    const open = draft.value
+    if (!open) return
+    open.reps = Math.max(0, open.reps + delta)
+  }
+
+  function setRir(value: number | null): void {
+    if (draft.value) draft.value.rir = value
+  }
+
+  /** The Next button: log the set and move on without waiting out the rest. */
+  function commitAndAdvance(): void {
+    commitDraft()
+    skipForward()
+  }
+
+  /** Marks the session log finished. Called on completion or an early end. */
+  function finishLog(completed: boolean): void {
+    const id = sessionLogId.value
+    const current = snapshot.value
+    if (!id || !current) return
+
+    void useHistoryStore().finishSessionLog(id, {
+      completed,
+      endedAt: new Date().toISOString(),
+      workingTimeMs: current.workingTimeMs,
+      totalElapsedMs: current.totalElapsedMs,
+    })
   }
 
   /** Clears everything. Called when leaving the player. */
@@ -136,6 +309,10 @@ export const useSessionStore = defineStore('session', () => {
     segments.value = []
     snapshot.value = null
     sessionId.value = null
+    sessionLogId.value = null
+    draft.value = null
+    loggedSets.value = []
+    allPrefillsUntouched.value = true
   }
 
   return {
@@ -154,6 +331,11 @@ export const useSessionStore = defineStore('session', () => {
     nextSegment,
     nextExercise,
     progress,
+    // set logging
+    draft,
+    loggedSets,
+    allPrefillsUntouched,
+    sessionLogId,
     // actions
     start,
     tick,
@@ -166,5 +348,12 @@ export const useSessionStore = defineStore('session', () => {
     end,
     reset,
     onEvent,
+    adjustWeight,
+    setWeightFromDisplay,
+    adjustReps,
+    setRir,
+    commitDraft,
+    commitAndAdvance,
+    finishLog,
   }
 })
