@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 is CSS-first: no tailwind.config.js, no `darkMode: 'class'` key.
+ * The class strategy is declared here instead, so the theme can be toggled
+ * independently of the OS (spec section 12).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Work vs rest never rely on colour alone (spec section 9), but the palette
+     still needs to be unambiguous under gym lighting. */
+  --color-work: oklch(0.72 0.18 145);
+  --color-rest: oklch(0.72 0.15 240);
+  --color-warmup: oklch(0.78 0.15 85);
+
+  --color-surface: oklch(0.16 0.01 260);
+  --color-surface-raised: oklch(0.22 0.01 260);
+  --color-ink: oklch(0.97 0 0);
+  --color-ink-muted: oklch(0.72 0.01 260);
+
+  /* Countdown sized in viewport units so it stays legible at ~2 metres. */
+  --text-countdown: clamp(5rem, 34vw, 16rem);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html.light {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* The player is a fixed, one-screen surface; page scroll would fight it. */
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+html.light body {
+  background-color: oklch(0.98 0 0);
+  color: oklch(0.2 0.01 260);
+}
+
+/* Tabular numerals stop the countdown jittering as digits change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spec section 9 / section 4: honour prefers-reduced-motion globally, and let
+   the SVG animation components freeze at their stretched pose. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visible focus states everywhere; keyboard navigation is a requirement. */
+:focus-visible {
+  outline: 3px solid var(--color-rest);
+  outline-offset: 2px;
+}
