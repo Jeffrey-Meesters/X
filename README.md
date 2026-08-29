@@ -13,7 +13,7 @@ Under construction, built in milestones against the product spec.
 
 - [x] **1 — Scaffold**: toolchain, data model, seeded exercise library and both sessions
 - [x] **2 — Timer engine**: pure state machine, injected clock, backgrounding catch-up
-- [ ] 3 — Session player UI
+- [x] **3 — Session player UI**: full-screen player, pause, skip, rest extensions
 - [ ] 4 — Set logging
 - [ ] 5 — Persistence, history and crash recovery
 - [ ] 6 — Onboarding and safety acknowledgement
@@ -86,6 +86,24 @@ produces bugs that only show up on a real phone, mid-session:
 Auto-commit of a logged set needs no special suppression: pausing blocks
 advancement, so a transition segment cannot end while paused, and the commit
 that fires on its end therefore cannot either.
+
+### Testing the timer in a browser
+
+Playwright's `page.clock` is what keeps a 14:30 end-to-end run down to
+milliseconds, but two details matter:
+
+- **`install()` does not stop the clock.** It swaps in fake timers that still
+  tick at real time, which makes every countdown assertion a race. `pauseAt()`
+  freezes it, and it has to be called before navigation so the page is frozen
+  from its first paint.
+- **Wait for the player to render before touching the clock.** Route components
+  are lazy-loaded, so the app can still be mounting when `goto` resolves.
+  Advancing a frozen clock before the runner's interval exists leaves no timer
+  to fire, and it never fires afterwards either.
+
+Long advances use `fastForward` rather than `runFor`: it fires each timer at
+most once instead of one per 100ms, which is both far cheaper and the realistic
+"screen went to sleep" path through the engine's catch-up logic.
 
 ## Toolchain notes
 

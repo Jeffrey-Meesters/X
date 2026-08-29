@@ -1,11 +1,169 @@
 <script setup lang="ts">
-// Placeholder. Implemented in a later milestone.
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSessionStore } from '@/stores/session'
+import { useSessionRunner } from '@/composables/useSessionRunner'
+import { formatDuration, formatRepRange } from '@/engine/format'
+import { getSessionTemplate } from '@/data/sessions'
+import ExerciseFigure from '@/components/animations/ExerciseFigure.vue'
+import SegmentBanner from '@/components/player/SegmentBanner.vue'
+import CountdownDisplay from '@/components/player/CountdownDisplay.vue'
+import PlayerControls from '@/components/player/PlayerControls.vue'
+import ExerciseDetail from '@/components/player/ExerciseDetail.vue'
+
+const route = useRoute()
+const router = useRouter()
+const session = useSessionStore()
+
+useSessionRunner()
+
+const templateId = computed(() => String(route.params.sessionId))
+
+onMounted(() => {
+  // Guard an unknown id from the URL rather than throwing on a bad bookmark.
+  try {
+    getSessionTemplate(templateId.value)
+  } catch {
+    void router.replace('/')
+    return
+  }
+  session.start(templateId.value)
+})
+
+onBeforeUnmount(() => session.reset())
+
+const segment = computed(() => session.currentSegment)
+const exercise = computed(() => session.currentExercise)
+
+const isRest = computed(
+  () => segment.value?.type === 'transition' || segment.value?.type === 'lead-in',
+)
+const canExtend = computed(() => session.isActive && isRest.value)
+
+const roundLabel = computed(() => {
+  const current = segment.value
+  if (!current?.round || !current.totalRounds) return ''
+  return `Round ${current.round} of ${current.totalRounds}`
+})
+
+const targetLabel = computed(() => {
+  const current = segment.value
+  if (!current?.targetReps) return ''
+  const perSide = exercise.value?.unilateral === true ? ' per side' : ''
+  return `${formatRepRange(current.targetReps)} reps${perSide}`
+})
+
+const sideLabel = computed(() => (segment.value?.side ? `${segment.value.side} side` : ''))
+
+/**
+ * Screen-reader announcement at each segment change. Kept to one short line so
+ * it does not still be reading when the interval is already over.
+ */
+const announcement = computed(() => {
+  if (!segment.value || !exercise.value) return ''
+  if (session.isPaused) return 'Paused'
+  const parts = [segment.value.type === 'transition' ? 'Rest' : exercise.value.name]
+  if (roundLabel.value) parts.push(roundLabel.value)
+  if (sideLabel.value) parts.push(sideLabel.value)
+  return parts.join('. ')
+})
+
+const completedLabel = computed(() => {
+  const current = session.snapshot
+  if (!current) return ''
+  // Working time and total elapsed diverge whenever the user paused to change
+  // plates, so the summary reports them separately (spec section 6.5).
+  const working = formatDuration(current.workingTimeMs)
+  const total = formatDuration(current.totalElapsedMs)
+  return working === total ? `${working} of work` : `${working} of work, ${total} elapsed`
+})
+
+function endSession(): void {
+  session.end()
+  void router.replace('/')
+}
 </script>
 
 <template>
-  <main class="p-6">
-    <h1 class="text-2xl font-semibold">Player</h1>
-    <p class="mt-2 text-ink-muted">Not built yet.</p>
-    <RouterLink to="/" class="mt-6 inline-block underline">Back</RouterLink>
+  <main class="mx-auto flex h-dvh max-w-md flex-col p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div v-if="!segment || !exercise" class="m-auto text-ink-muted">Loading session…</div>
+
+    <!-- The full summary lands in a later milestone; for now finishing has to
+         be an explicit, acknowledged state rather than a stalled countdown. -->
+    <section v-else-if="session.isComplete" class="m-auto text-center">
+      <h1 class="text-4xl font-bold">Session complete</h1>
+      <p data-testid="completed-label" class="mt-3 text-ink-muted">{{ completedLabel }}</p>
+      <button
+        type="button"
+        class="mt-8 min-h-16 w-full rounded-2xl bg-work px-6 text-xl font-semibold text-surface"
+        @click="router.replace('/')"
+      >
+        Done
+      </button>
+    </section>
+
+    <template v-else>
+      <!-- Politeness level matters: assertive would cut off the countdown at
+           every segment boundary. -->
+      <p aria-live="polite" class="sr-only" data-testid="announcement">{{ announcement }}</p>
+
+      <header class="flex items-center justify-between gap-3">
+        <SegmentBanner :type="segment.type" :paused="session.isPaused" />
+        <button
+          type="button"
+          class="min-h-12 rounded-xl px-4 text-sm font-medium text-ink-muted"
+          @click="endSession"
+        >
+          End
+        </button>
+      </header>
+
+      <div
+        class="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-raised"
+        role="progressbar"
+        :aria-valuenow="Math.round(session.progress * 100)"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label="Session progress"
+      >
+        <div class="h-full bg-ink-muted transition-[width]" :style="{ width: `${session.progress * 100}%` }" />
+      </div>
+
+      <section class="mt-4 text-center">
+        <h1 class="text-3xl leading-tight font-bold">{{ exercise.name }}</h1>
+        <p class="mt-1 min-h-6 text-ink-muted">
+          <span v-if="isRest && session.nextExercise" data-testid="next-up">Next: {{ session.nextExercise.name }}</span>
+          <span v-else-if="targetLabel" data-testid="target">{{ targetLabel }}</span>
+          <span v-else-if="sideLabel" class="capitalize">{{ sideLabel }}</span>
+        </p>
+        <p v-if="roundLabel" data-testid="round" class="mt-0.5 text-sm text-ink-muted">{{ roundLabel }}</p>
+      </section>
+
+      <div class="flex min-h-0 flex-1 items-center justify-center py-2">
+        <ExerciseFigure
+          :exercise-id="segment.exerciseId"
+          :paused="session.isPaused"
+          class="mx-auto h-full max-h-48"
+        />
+      </div>
+
+      <CountdownDisplay
+        :remaining-ms="session.snapshot?.remainingMs ?? 0"
+        :dimmed="session.isPaused"
+      />
+
+      <!-- Everything interactive lives in the bottom third, reachable one-handed. -->
+      <div class="mt-auto space-y-3 pt-4">
+        <ExerciseDetail :exercise="exercise" />
+        <PlayerControls
+          :paused="session.isPaused"
+          :can-extend="canExtend"
+          @toggle-pause="session.togglePause()"
+          @skip-back="session.skipBack()"
+          @skip-forward="session.skipForward()"
+          @extend="session.extend($event)"
+        />
+      </div>
+    </template>
   </main>
 </template>
