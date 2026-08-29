@@ -18,7 +18,7 @@ Under construction, built in milestones against the product spec.
 - [x] **5 — Persistence**: IndexedDB, autosave, resume-or-discard
 - [x] **6 — Onboarding**: three questions, safety acknowledgement, settings
 - [x] **7 — Cues**: generated tones, voice, haptics, wake lock
-- [ ] 8 — SVG movement animations
+- [x] **8 — Animations**: 16 hand-authored SVG movements
 - [ ] 9 — Charts, progression nudges, weekly summary
 - [ ] 10 — PWA shell, offline, export/import
 - [ ] 11 — Customisation screens
@@ -150,6 +150,29 @@ Two things here are less obvious than they look:
 Sound, voice, vibration and wake lock are four independent toggles: a gym is
 noisy, and someone with headphones on may want a buzz without a voice talking
 over their music.
+
+### Movement animations
+
+Sixteen hand-authored SVGs in `src/components/animations/moves/`, one per
+movement. The convention is documented in full at the top of `goblet-squat.vue`
+and enforced by `convention.test.ts`, which asserts it against the source of
+every file — the only thing that stops sixteen drawings drifting apart one
+well-meaning tweak at a time.
+
+The rig is worth understanding before editing one: **forward kinematics from a
+planted foot.** The shin rotates about the ankle, the thigh about the knee
+inside it, the torso about the hip inside that. Nesting keeps the joints
+connected for free and stops the foot sliding off the floor, which is exactly
+what goes wrong if each limb is animated independently. Rotations compound down
+the chain, so a value that looks large (the torso's) is usually undoing its
+parent's rotation before adding its own.
+
+`ExerciseFigure.vue` is a dispatcher: it resolves an exercise's `animation.id`
+to its component through a lazy glob, and falls back to a generic figure for
+any exercise without its own drawing. Five exercises deliberately share a
+drawing where the movement path is identical — a seated and a standing shoulder
+press trace the same arc — which is asserted explicitly rather than left to
+drift.
 
 ## Toolchain notes
 
