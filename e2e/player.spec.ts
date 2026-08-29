@@ -162,3 +162,89 @@ test('an unknown session id falls back to home', async ({ page }) => {
   await page.goto('/session/does-not-exist')
   await expect(page).toHaveURL(/\/$/)
 })
+
+test.describe('set logging', () => {
+  /** Advances to the first rest, where the weight entry opens. */
+  async function toFirstRest(page: Page) {
+    await openPlayer(page, { leadIn: false })
+    await page.clock.fastForward(130_000) // 90s warm-up + the 40s work interval
+    await expect(banner(page)).toHaveText('Rest')
+  }
+
+  test('the weight entry opens during the rest, beside a running countdown', async ({ page }) => {
+    await toFirstRest(page)
+
+    await expect(page.getByRole('region', { name: 'Log your set' })).toBeVisible()
+    await expect(page.getByText('Goblet squat · round 1')).toBeVisible()
+    await expect(countdown(page)).toHaveText('20')
+  })
+
+  test('a first-ever set shows the calibration banner and the floor weight', async ({ page }) => {
+    await toFirstRest(page)
+
+    await expect(page.getByText(/Pick a weight where the last two reps are hard/)).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Weight 5 kg/ })).toBeVisible()
+  })
+
+  test('the stepper adjusts weight without a keyboard', async ({ page }) => {
+    await toFirstRest(page)
+
+    await page.getByRole('button', { name: 'Increase weight' }).click()
+    await expect(page.getByRole('button', { name: /^Weight 7.5 kg/ })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Decrease weight' }).click()
+    await expect(page.getByRole('button', { name: /^Weight 5 kg/ })).toBeVisible()
+  })
+
+  test('reps default to the target and can be adjusted down', async ({ page }) => {
+    await toFirstRest(page)
+
+    await expect(page.getByTestId('reps')).toHaveText('12')
+    await page.getByRole('button', { name: 'Decrease reps' }).click()
+    await expect(page.getByTestId('reps')).toHaveText('11')
+  })
+
+  test('tapping the number opens a numeric entry', async ({ page }) => {
+    await toFirstRest(page)
+
+    await page.getByRole('button', { name: /^Weight 5 kg/ }).click()
+    const field = page.getByRole('textbox', { name: 'Weight' })
+    await expect(field).toHaveAttribute('inputmode', 'decimal')
+
+    await field.fill('24')
+    await field.press('Enter')
+    await expect(page.getByRole('button', { name: /^Weight 24 kg/ })).toBeVisible()
+  })
+
+  test('Next commits the set and moves straight on', async ({ page }) => {
+    await toFirstRest(page)
+
+    await page.getByRole('button', { name: 'Increase weight' }).click()
+    await page.getByRole('button', { name: 'Next', exact: true }).click()
+
+    await expect(banner(page)).toHaveText('Work')
+    await expect(page.getByRole('heading', { name: 'Flat dumbbell bench press' })).toBeVisible()
+  })
+
+  test('pausing mid-rest keeps the entry open and editable', async ({ page }) => {
+    await toFirstRest(page)
+    await page.getByRole('button', { name: 'Pause session' }).click()
+
+    // This is the plate-change case: the entry must not commit itself away.
+    await page.clock.fastForward(600_000)
+    await expect(page.getByRole('region', { name: 'Log your set' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Increase weight' }).click()
+    await expect(page.getByRole('button', { name: /^Weight 7.5 kg/ })).toBeVisible()
+    await expect(countdown(page)).toHaveText('20')
+  })
+
+  test('a completed session reports its sets and volume', async ({ page }) => {
+    await openPlayer(page, { leadIn: false })
+    await page.clock.fastForward(870_000)
+
+    await expect(page.getByRole('heading', { name: 'Session complete' })).toBeVisible()
+    // Twelve sets at the 5 kg floor, reps defaulting to the top of each range.
+    await expect(page.getByTestId('completed-volume')).toContainText('12 sets')
+  })
+})
