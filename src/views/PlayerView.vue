@@ -4,6 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from '@/stores/session'
 import { useSessionRunner } from '@/composables/useSessionRunner'
 import { usePersistence } from '@/composables/usePersistence'
+import { useAudioCues } from '@/composables/useAudioCues'
+import { useVoice } from '@/composables/useVoice'
+import { useHaptics } from '@/composables/useHaptics'
+import { useWakeLock } from '@/composables/useWakeLock'
 import { readActiveSession } from '@/persistence/db'
 import { useHistoryStore } from '@/stores/history'
 import { formatDuration, formatRepRange } from '@/engine/format'
@@ -24,6 +28,11 @@ const settingsStore = useSettingsStore()
 
 useSessionRunner()
 usePersistence()
+// Side effects subscribe to the store's event channel rather than living in it.
+useAudioCues()
+useVoice()
+useHaptics()
+useWakeLock()
 
 const templateId = computed(() => String(route.params.sessionId))
 

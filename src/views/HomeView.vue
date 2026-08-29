@@ -8,6 +8,7 @@ import { getExercise } from '@/data/exercises'
 import { buildSegmentList, totalDurationMs } from '@/engine/segments'
 import { formatDuration } from '@/engine/format'
 import { useSettingsStore } from '@/stores/settings'
+import { unlockAudio } from '@/composables/useAudioCues'
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
@@ -17,11 +18,24 @@ onMounted(() => void recovery.check())
 
 const nextSession = computed(() => SESSION_TEMPLATES[0]!)
 
-function resumeSession(): void {
+/**
+ * Both entry points into a session unlock audio first.
+ *
+ * An AudioContext created outside a user gesture starts suspended and stays
+ * that way on iOS, so it has to happen here on the tap - not in the player,
+ * which mounts after navigation (spec section 7).
+ */
+async function startSession(): Promise<void> {
+  await unlockAudio()
+  await router.push({ name: 'player', params: { sessionId: nextSession.value.id } })
+}
+
+async function resumeSession(): Promise<void> {
   const record = recovery.pending.value
   if (!record) return
   recovery.accept()
-  void router.push({
+  await unlockAudio()
+  await router.push({
     name: 'player',
     params: { sessionId: record.sessionId },
     query: { resume: '1' },
@@ -79,12 +93,13 @@ const circuitExercises = computed(() =>
 
     <!-- Primary control sits in the bottom third and is a large tap target. -->
     <div class="mt-auto pt-8">
-      <RouterLink
-        :to="{ name: 'player', params: { sessionId: nextSession.id } }"
-        class="block min-h-16 rounded-2xl bg-work px-6 py-5 text-center text-xl font-semibold text-surface"
+      <button
+        type="button"
+        class="block min-h-16 w-full rounded-2xl bg-work px-6 py-5 text-center text-xl font-semibold text-surface"
+        @click="startSession"
       >
         Start {{ nextSession.name }}
-      </RouterLink>
+      </button>
 
       <nav class="mt-4 flex gap-3">
         <RouterLink
