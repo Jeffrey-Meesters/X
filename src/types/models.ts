@@ -119,6 +119,15 @@ export interface SessionLog {
   readonly workingTimeMs?: number
   /** Wall-clock duration including pauses, which plate changes make longer. */
   readonly totalElapsedMs?: number
+  /**
+   * Rounds this session was planned with.
+   *
+   * Recorded because rounds are customisable: judging a three-round session
+   * against a rounds setting the user has since changed to four would silently
+   * withhold every progression suggestion it earned. Absent on logs written
+   * before customisation existed, where three was the only possibility.
+   */
+  readonly rounds?: number
 }
 
 export interface Settings {
@@ -136,6 +145,31 @@ export interface Settings {
   leadIn: boolean
   /** Show the reps-in-reserve selector during set logging. Off by default. */
   showRir: boolean
+
+  /**
+   * Circuit shape (spec section 3.6). Overrides the seeded templates, which
+   * stay immutable so "reset to default" is always a possible answer.
+   */
+  workSec: number
+  transitionSec: number
+  rounds: number
+
+  /**
+   * Per-exercise swaps chosen in customisation, keyed by the id in the
+   * template. Applied over the equipment substitutions, so an explicit choice
+   * beats an inferred one.
+   */
+  exerciseSwaps: Record<string, string>
+
+  /**
+   * Trade Session B's core finisher for a fourth set of its shoulder press
+   * (spec section 2).
+   *
+   * Off by default and deliberately so: core work is more broadly useful than
+   * extra delt volume, and the spec exposes this as an option rather than a
+   * recommendation.
+   */
+  extraShoulderSet: boolean
 }
 
 /** Autosaved for crash recovery. One row maximum. Spec section 3.0.1. */

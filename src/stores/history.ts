@@ -30,6 +30,27 @@ function warn(action: string, error: unknown): void {
 }
 
 export const useHistoryStore = defineStore('history', () => {
+  /**
+   * Writes are serialised, and each one re-reads the record it is about to
+   * write from memory rather than capturing it when it was queued.
+   *
+   * Both halves matter, and the bug they fix is not hypothetical: the final
+   * tick of a session commits the last set *and* closes the log. Queued with a
+   * captured copy, the set's write - which still says `completed: false` -
+   * lands after the completion write and silently reverts it, recording every
+   * finished session as a partial one.
+   */
+  let queue: Promise<void> = Promise.resolve()
+
+  function enqueue(action: string, task: () => Promise<void>): Promise<void> {
+    queue = queue.then(task).catch((error) => {
+      // Non-fatal by design - a workout must not stop because a write did -
+      // but never silent: a bare catch hides exactly this kind of bug.
+      warn(action, error)
+    })
+    return queue
+  }
+
   const sessionLogs = ref<SessionLog[]>([])
   const sets = ref<LoggedSet[]>([])
   /** Weights accepted from progression nudges, keyed by exercise. */
@@ -68,24 +89,21 @@ export const useHistoryStore = defineStore('history', () => {
 
   async function startSessionLog(log: SessionLog): Promise<void> {
     sessionLogs.value = [...sessionLogs.value, log]
-    await persistLog(log)
+    await persistLog(log.id)
   }
 
   async function addSet(set: LoggedSet): Promise<void> {
     sets.value = [...sets.value, set]
     const owner = sessionLogs.value.find((log) => log.id === set.sessionLogId)
-    const updated = owner ? { ...owner, sets: [...owner.sets, set.id] } : undefined
-    if (updated) {
+    if (owner) {
+      const updated = { ...owner, sets: [...owner.sets, set.id] }
       sessionLogs.value = sessionLogs.value.map((log) => (log.id === updated.id ? updated : log))
     }
 
-    try {
-      await writeSet(set)
-      if (updated) await writeSessionLog(updated)
-    } catch (error) {
-      // Kept in memory regardless, so the session summary is still correct.
-      warn('persist set', error)
-    }
+    // Kept in memory regardless of what storage does, so the session summary
+    // is still correct on a device that cannot write.
+    enqueue('persist set', () => writeSet(set))
+    await persistLog(set.sessionLogId)
   }
 
   async function finishSessionLog(
@@ -96,16 +114,21 @@ export const useHistoryStore = defineStore('history', () => {
     if (!updated) return
     const next = { ...updated, ...patch }
     sessionLogs.value = sessionLogs.value.map((log) => (log.id === id ? next : log))
-    await persistLog(next)
+    await persistLog(id)
   }
 
-  async function persistLog(log: SessionLog): Promise<void> {
-    try {
-      await writeSessionLog(log)
-    } catch (error) {
-      // See above: history is best-effort, the workout is not.
-      warn('persist session log', error)
-    }
+  /**
+   * Queues a write of whatever this log says *at the time the write runs*.
+   *
+   * Taking the id rather than the record is the whole point: a queued write
+   * holding a snapshot from when it was scheduled will happily undo a later
+   * change that has already been applied in memory.
+   */
+  function persistLog(id: string): Promise<void> {
+    return enqueue('persist session log', async () => {
+      const log = sessionLogs.value.find((entry) => entry.id === id)
+      if (log) await writeSessionLog(log)
+    })
   }
 
   function setsForLog(logId: string): LoggedSet[] {

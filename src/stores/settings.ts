@@ -17,6 +17,11 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'auto',
   leadIn: true,
   showRir: false,
+  workSec: 40,
+  transitionSec: 20,
+  rounds: 3,
+  exerciseSwaps: {},
+  extraShoulderSet: false,
 }
 
 /**
@@ -27,14 +32,23 @@ export const DEFAULT_SETTINGS: Settings = {
 function load(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...DEFAULT_SETTINGS }
+    if (!raw) return defaults()
     // Merged over the defaults so a build that adds a setting does not read
     // `undefined` out of a older stored object.
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) }
+    return { ...defaults(), ...(JSON.parse(raw) as Partial<Settings>) }
   } catch {
     // Private browsing, disabled storage, or corrupt JSON. Defaults are fine.
-    return { ...DEFAULT_SETTINGS }
+    return defaults()
   }
+}
+
+/**
+ * A fresh copy every time. A spread of DEFAULT_SETTINGS is shallow, so every
+ * caller would otherwise share one `exerciseSwaps` object and a single stray
+ * mutation would rewrite the defaults for the whole app.
+ */
+function defaults(): Settings {
+  return { ...DEFAULT_SETTINGS, exerciseSwaps: { ...DEFAULT_SETTINGS.exerciseSwaps } }
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -57,7 +71,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function reset(): void {
-    settings.value = { ...DEFAULT_SETTINGS }
+    settings.value = defaults()
   }
 
   return { settings, update, reset }

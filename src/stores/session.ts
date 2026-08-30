@@ -8,7 +8,7 @@ import {
 } from '@/engine/timer'
 import { buildSegmentList, nextExerciseSegment, type Segment } from '@/engine/segments'
 import type { ActiveSessionRecord } from '@/persistence/db'
-import { getSessionTemplate, substitutionsFor } from '@/data/sessions'
+import { buildOptionsFor, getSessionTemplate } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
 import { prefillWeightKg } from '@/engine/progression'
 import { fromDisplay, stepWeight } from '@/engine/units'
@@ -198,12 +198,7 @@ export const useSessionStore = defineStore('session', () => {
     const settingsStore = useSettingsStore()
     const template = getSessionTemplate(templateId)
 
-    // The no-bench answer is the only reason the substitutions field exists.
-    const substitutions = substitutionsFor(settingsStore.settings.hasBench)
-    const list = buildSegmentList(template, {
-      leadIn: settingsStore.settings.leadIn,
-      ...(substitutions ? { substitutions } : {}),
-    })
+    const list = buildSegmentList(template, buildOptionsFor(settingsStore.settings, templateId))
 
     segments.value = list
     sessionId.value = templateId
@@ -220,6 +215,7 @@ export const useSessionStore = defineStore('session', () => {
       endedAt: null,
       completed: false,
       sets: [],
+      rounds: settingsStore.settings.rounds,
     })
 
     engine.value = createTimerEngine({

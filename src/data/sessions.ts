@@ -1,4 +1,6 @@
-import type { Program, SessionTemplate } from '@/types/models'
+import type { Program, SessionTemplate, Settings } from '@/types/models'
+import type { BuildOptions } from '@/engine/segments'
+import { EXERCISES_BY_ID } from '@/data/exercises'
 
 /**
  * Seeded session templates.
@@ -94,4 +96,88 @@ export const NO_BENCH_SUBSTITUTIONS: Readonly<Record<string, string>> = {
  */
 export function substitutionsFor(hasBench: boolean): Readonly<Record<string, string>> | undefined {
   return hasBench ? undefined : NO_BENCH_SUBSTITUTIONS
+}
+
+/**
+ * The exercise whose extra set replaces the finisher, per session.
+ *
+ * Only Session B has one: the option exists because 60 minutes of lifting a
+ * week leaves shoulders on 6 direct sets, and Session B is where the shoulder
+ * press lives (spec section 2). Session A has no shoulder movement to add to,
+ * so the option is simply not offered there.
+ */
+export const EXTRA_SET_EXERCISE: Readonly<Record<string, string>> = {
+  'session-b': 'seated-shoulder-press',
+}
+
+/** True when this session can trade its finisher for an extra set. */
+export function supportsExtraSet(sessionId: string): boolean {
+  return EXTRA_SET_EXERCISE[sessionId] !== undefined
+}
+
+/**
+ * Every customisation that shapes a session, in one place.
+ *
+ * Shared by the home screen preview and the running session so the two cannot
+ * disagree about what the user is about to do - the same reason
+ * `substitutionsFor` exists.
+ */
+/**
+ * Whether the user's equipment allows this movement at all.
+ *
+ * An id the library no longer has - renamed, or arriving from an import of an
+ * older build - counts as unusable rather than throwing. A stale swap should
+ * quietly fall back to the default movement, not take the app down on boot.
+ */
+function usable(exerciseId: string, hasBench: boolean): boolean {
+  const exercise = EXERCISES_BY_ID.get(exerciseId)
+  if (!exercise) return false
+  return hasBench || !exercise.equipment.includes('bench')
+}
+
+/**
+ * The swaps that still apply, given the equipment answer.
+ *
+ * Filtering matters because the two settings can contradict each other: swap
+ * the bent-over row for the single-arm row, then answer "no bench", and an
+ * unfiltered swap would keep prescribing a movement the user has just said
+ * they cannot do - while the picker, which does filter, showed them something
+ * else entirely.
+ */
+function applicableSwaps(settings: Settings): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(settings.exerciseSwaps).filter(([, chosen]) =>
+      usable(chosen, settings.hasBench),
+    ),
+  )
+}
+
+export function buildOptionsFor(settings: Settings, sessionId: string): BuildOptions {
+  const equipment = substitutionsFor(settings.hasBench)
+  // Explicit choices win over inferred ones: someone who picked a movement in
+  // customisation means it, whatever their bench answer implies.
+  const substitutions = { ...equipment, ...applicableSwaps(settings) }
+
+  const extraSetOf = settings.extraShoulderSet ? EXTRA_SET_EXERCISE[sessionId] : undefined
+
+  return {
+    leadIn: settings.leadIn,
+    ...(Object.keys(substitutions).length > 0 ? { substitutions } : {}),
+    circuit: {
+      rounds: settings.rounds,
+      workSec: settings.workSec,
+      transitionSec: settings.transitionSec,
+    },
+    ...(extraSetOf === undefined ? {} : { replaceFinisherWithSetOf: extraSetOf }),
+  }
+}
+
+/**
+ * The exercise that will actually run in a template slot, after equipment
+ * substitutions and customisation swaps.
+ */
+export function effectiveExerciseId(templateExerciseId: string, settings: Settings): string {
+  const chosen = settings.exerciseSwaps[templateExerciseId]
+  if (chosen !== undefined && usable(chosen, settings.hasBench)) return chosen
+  return substitutionsFor(settings.hasBench)?.[templateExerciseId] ?? templateExerciseId
 }

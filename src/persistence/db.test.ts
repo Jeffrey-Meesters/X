@@ -451,3 +451,63 @@ describe('schema migration from v1', () => {
     expect((await readAllSessionLogs()).map((l) => l.id)).toEqual(['legacy'])
   })
 })
+
+describe('concurrent writes to one session log', () => {
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    await freshDb()
+  })
+
+  /**
+   * The last tick of a session commits the final set and closes the log in the
+   * same turn. Both write the log, and for a while the set's write - queued
+   * with a copy taken before the log was closed - landed second and reverted
+   * `completed` to false, recording every finished session as a partial one.
+   */
+  it('does not let a set write revert the completion flag', async () => {
+    const history = useHistoryStore()
+    await history.load()
+
+    const log: SessionLog = {
+      id: 'log-race',
+      programId: 'fullbody-15',
+      sessionId: 'session-a',
+      startedAt: '2026-08-20T09:00:00.000Z',
+      endedAt: null,
+      completed: false,
+      sets: [],
+    }
+    await history.startSessionLog(log)
+
+    const set: LoggedSet = {
+      id: 'set-race',
+      sessionLogId: 'log-race',
+      exerciseId: 'goblet-squat',
+      round: 3,
+      weightKg: 20,
+      reps: 12,
+      rir: null,
+      confirmed: true,
+      completedAt: '2026-08-20T09:14:00.000Z',
+    }
+
+    // Deliberately not awaited in sequence: this is the real ordering, where
+    // both are set off from the same synchronous tick.
+    const writes = Promise.all([
+      history.addSet(set),
+      history.finishSessionLog('log-race', {
+        completed: true,
+        endedAt: '2026-08-20T09:14:30.000Z',
+        workingTimeMs: 870_000,
+        totalElapsedMs: 900_000,
+      }),
+    ])
+    await writes
+
+    const stored = (await readAllSessionLogs()).find((entry) => entry.id === 'log-race')
+    expect(stored?.completed).toBe(true)
+    // And the set is still attached: the fix must not drop the other write.
+    expect(stored?.sets).toContain('set-race')
+    expect((await readAllSets()).map((s) => s.id)).toContain('set-race')
+  })
+})

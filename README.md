@@ -9,7 +9,7 @@ accounts, and the app works fully offline after the first load.
 
 ## Status
 
-Under construction, built in milestones against the product spec.
+All eleven milestones of the spec's build order are done.
 
 - [x] **1 — Scaffold**: toolchain, data model, seeded exercise library and both sessions
 - [x] **2 — Timer engine**: pure state machine, injected clock, backgrounding catch-up
@@ -21,7 +21,7 @@ Under construction, built in milestones against the product spec.
 - [x] **8 — Animations**: 16 hand-authored SVG movements
 - [x] **9 — History**: summary, progression nudges, charts, weekly rollup
 - [x] **10 — PWA**: installable, offline, JSON export/import, Firebase hosting config
-- [ ] 11 — Customisation screens
+- [x] **11 — Customisation**: session shape, exercise swaps, rotation, theme
 
 ## Getting started
 
@@ -120,9 +120,13 @@ Three things here are easy to get wrong:
 - **Persistence failures are non-fatal but never silent.** A workout must not
   stop because a write did, but a bare `catch {}` hides real bugs, so every
   swallowed failure is logged.
-- **Writes are serialised through one promise chain.** The last tick of a
-  session emits `segment-end` and `complete` together; run in parallel, the
-  save could land after the clear and offer a finished workout for resume.
+- **Writes are serialised through one promise chain, and each one re-reads
+  what it is about to write.** The last tick of a session emits `segment-end`
+  and `complete` together; run in parallel, the recovery-row save could land
+  after the clear and offer a finished workout for resume. The same tick also
+  commits the final set *and* closes the session log — and a queued write
+  holding a copy taken when it was scheduled will happily undo a later change,
+  which is how every completed session came to be recorded as a partial one.
 
 The recovery row stores the segment list itself rather than rebuilding it, since
 a changed lead-in or bench answer would shift every index. Position is stored as
@@ -272,6 +276,54 @@ day rather than a year.
 because the `secrets` context is not readable from a job-level `if` - without
 that, deploy would fail on every push until the secret exists and paint `main`
 red for a reason nobody can act on.
+
+### Customisation
+
+The seeded templates in `src/data/sessions.ts` stay immutable; customisation
+lives in settings and is applied when the segment list is built. That is what
+makes "reset to the default program" a thing the app can always do.
+
+`buildOptionsFor(settings, sessionId)` is the single place those choices are
+composed, and both the home screen preview and the running session go through
+it — the same rule that already stopped the home screen promising a bench press
+to someone without a bench. Explicit swaps are layered *over* equipment
+substitutions, so a movement the user picked wins over one the bench answer
+inferred; the swap picker filters out anything their equipment cannot do, since
+an explicit choice would otherwise stick.
+
+Two details are less obvious than the controls make them look:
+
+- **Rounds are recorded on the session log.** Progression requires every round
+  cleared at the top of the range, so judging a three-round session against a
+  rounds setting the user has since changed to four would silently withhold
+  every suggestion it earned.
+- **The fourth-shoulder-set option is a trade, not an addition.** Session B's
+  side plank is 30 s per side and a work segment plus its transition is 40 + 20,
+  so swapping one for the other leaves the session exactly 14:30 — which is
+  what makes it something the spec can offer without an asterisk. The extra set
+  carries a transition of its own, because that is where a set gets logged.
+
+Which session comes next is read from history rather than stored, and only
+*completed* sessions rotate it: a session abandoned after ninety seconds is not
+one the user has done, and rotating past it would quietly drop it from the
+week. The home screen carries a one-tap override for when they disagree.
+
+### Two themes, one palette
+
+The theme is a class on `<html>`, applied from `localStorage` in `main.ts`
+*before* the app mounts — the document ships as `class="dark"`, so a
+light-theme user would otherwise get a dark frame painted and then swapped on
+every cold start. `auto` keeps following `prefers-color-scheme` live, so a
+phone that flips at sunset does not need the app reopened.
+
+Every accent token is defined twice, and they move in opposite directions.
+The app pairs every accent background with `text-surface`
+(`bg-work text-surface`), so `--color-surface` is both the page behind the
+button and the label on it: near-black text on a light green in dark mode,
+near-white text on a dark green in light mode. Values were measured against
+WCAG AA rather than eyeballed — the lightest passing colour plus a step of
+margin, 5.3:1 or better throughout, and checked to be inside sRGB, since a
+dark amber at the dark theme's chroma simply does not exist.
 
 ## Toolchain notes
 

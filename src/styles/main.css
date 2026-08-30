@@ -9,16 +9,18 @@
 
 @theme {
   /* Work vs rest never rely on colour alone (spec section 9), but the palette
-     still needs to be unambiguous under gym lighting. */
+     still needs to be unambiguous under gym lighting.
+
+     These are the dark values. Every one of them is redefined under
+     `html.light` below, because the whole palette inverts: `--color-surface`
+     is the *label* colour on every accent button in the app
+     (`bg-work text-surface`), so an accent that reads on a near-black label
+     must become dark enough to carry a near-white one. */
   --color-work: oklch(0.72 0.18 145);
   --color-rest: oklch(0.72 0.15 240);
   --color-warmup: oklch(0.78 0.15 85);
-
-  /* The one destructive action in the app - replacing local data on import.
-     0.55 lightness is chosen, not picked: it clears 4.5:1 against --color-ink
-     for the label (4.90:1) while still standing off the surface behind it
-     (3.63:1), which a brighter red does not. */
-  --color-danger: oklch(0.55 0.19 27);
+  /* Destructive actions - only the import replace. */
+  --color-danger: oklch(0.7 0.16 27);
 
   --color-surface: oklch(0.16 0.01 260);
   --color-surface-raised: oklch(0.22 0.01 260);
@@ -43,8 +45,29 @@
   --chart-reference: oklch(0.62 0.01 260);
 }
 
+/*
+ * The light theme, applied by the `light` class on <html> (spec section 12).
+ *
+ * Every accent is darker than its dark-mode counterpart rather than being the
+ * same hue at the same lightness. The app pairs every accent background with
+ * `text-surface`, so the two have to move in opposite directions: near-black
+ * text on a light green in dark mode, near-white text on a dark green here.
+ * Each pair was measured against WCAG AA rather than eyeballed - the lightest
+ * passing value plus a step of margin, which is 5.3:1 or better throughout.
+ */
 html.light {
   color-scheme: light;
+
+  --color-work: oklch(0.5 0.14 145);
+  --color-rest: oklch(0.5 0.11 250);
+  --color-warmup: oklch(0.5 0.09 70);
+  --color-danger: oklch(0.5 0.17 27);
+
+  --color-surface: oklch(0.98 0 0);
+  --color-surface-raised: oklch(0.94 0.004 260);
+  --color-ink: oklch(0.2 0.01 260);
+  --color-ink-muted: oklch(0.45 0.01 260);
+
   --chart-series: #2a78d6;
   --chart-grid: oklch(0.89 0.004 260);
   --chart-reference: oklch(0.52 0.01 260);
@@ -59,11 +82,6 @@ body {
   /* The player is a fixed, one-screen surface; page scroll would fight it. */
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
-}
-
-html.light body {
-  background-color: oklch(0.98 0 0);
-  color: oklch(0.2 0.01 260);
 }
 
 /* Tabular numerals stop the countdown jittering as digits change. */

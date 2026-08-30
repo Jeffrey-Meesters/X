@@ -22,9 +22,18 @@ export const ONBOARDED = {
   safetyAcknowledgedAt: '2026-08-01T08:00:00.000Z',
 }
 
+/**
+ * Seeds settings for the *first* document only.
+ *
+ * An init script runs before every navigation, so writing unconditionally
+ * would silently undo anything the test changed through the UI the moment it
+ * moved to another page - which looks exactly like the app failing to persist.
+ */
 export async function seedSettings(page: Page, settings: Record<string, unknown>): Promise<void> {
   await page.addInitScript((value) => {
-    localStorage.setItem('fullbody15.settings', JSON.stringify(value))
+    if (localStorage.getItem('fullbody15.settings') === null) {
+      localStorage.setItem('fullbody15.settings', JSON.stringify(value))
+    }
   }, settings)
 }
 
