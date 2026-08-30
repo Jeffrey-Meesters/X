@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    /*
+     * End-to-end specs straddle two runtimes. The file itself runs in Node -
+     * Buffer, fs, the Playwright runner - while the callbacks handed to
+     * `page.evaluate` are compiled against the browser. Both sets of lib and
+     * types have to be present, which is exactly why these files cannot stay
+     * in the DOM-only app project.
+     */
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsbuildinfo"
+  },
+  /*
+   * `exclude` is inherited through `extends` and applied after `include`.
+   * Leaving the app project's excludes in place would be harmless here, but
+   * stating it keeps the next person from having to work that out.
+   */
+  "exclude": [],
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

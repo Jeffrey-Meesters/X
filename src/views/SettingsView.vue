@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
 import type { Units } from '@/types/models'
 import SafetyNotice from '@/components/onboarding/SafetyNotice.vue'
+import ExportImport from '@/components/ExportImport.vue'
 
 /**
  * Every onboarding answer is revisable here (spec section 3.0), and the safety
@@ -150,6 +151,8 @@ const acknowledgedOn = computed(() => {
         />
       </label>
     </section>
+
+    <ExportImport class="mt-6" />
 
     <section class="mt-6 mb-8" aria-labelledby="about-heading">
       <h2 id="about-heading" class="text-sm tracking-wide text-ink-muted uppercase">About</h2>

@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Hosting only. There is no Firebase Auth and no Firestore in this project -
+# all data lives on the user's device (spec section 8).
+jobs:
+  # The `secrets` context is not readable from a job-level `if`, so whether the
+  # project has been wired up yet has to be decided in a step and passed on as
+  # an output. Without this the deploy job would fail on every push until the
+  # secret exists, painting main red for a reason nobody needs to act on.
+  configured:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -n "$SERVICE_ACCOUNT" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Firebase deploy is not configured yet. Add the FIREBASE_SERVICE_ACCOUNT secret and set the project id in .firebaserc to enable it.'
+          fi
+
+  deploy:
+    needs: configured
+    if: needs.configured.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
