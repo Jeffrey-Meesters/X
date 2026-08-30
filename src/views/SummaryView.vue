@@ -37,11 +37,18 @@ const template = computed(() => {
   }
 })
 
+/**
+ * What this session was planned with, not what the settings say now. A log
+ * written before rounds were customisable carries no value, and three was the
+ * only possibility then.
+ */
+const plannedRounds = computed(() => log.value?.rounds ?? 3)
+
 const summary = computed(() =>
   summariseSession(
     sets.value,
     (id) => template.value?.circuit.exercises.find((e) => e.exerciseId === id)?.targetReps,
-    () => template.value?.circuit.rounds ?? 3,
+    () => plannedRounds.value,
   ),
 )
 
@@ -75,7 +82,7 @@ const nudges = computed(() =>
       const suggestion = suggestProgression({
         sets: outcome.sets,
         targetReps: range,
-        rounds: template.value?.circuit.rounds ?? 3,
+        rounds: plannedRounds.value,
         units: units.value,
         increment: settingsStore.settings.weightIncrement,
         completedSessionCount: priorSessions.value,

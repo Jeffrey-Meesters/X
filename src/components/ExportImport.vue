@@ -219,7 +219,7 @@ async function confirmImport(): Promise<void> {
              should not be the quieter of the two. -->
         <button
           type="button"
-          class="min-h-14 flex-1 rounded-xl bg-danger px-4 text-lg font-semibold text-ink"
+          class="min-h-14 flex-1 rounded-xl bg-danger px-4 text-lg font-semibold text-surface"
           data-testid="import-confirm-button"
           @click="confirmImport"
         >

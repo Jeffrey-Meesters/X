@@ -2,16 +2,17 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
-import type { Units } from '@/types/models'
+import type { Theme, Units } from '@/types/models'
 import SafetyNotice from '@/components/onboarding/SafetyNotice.vue'
 import ExportImport from '@/components/ExportImport.vue'
+import SessionCustomisation from '@/components/SessionCustomisation.vue'
 
 /**
  * Every onboarding answer is revisable here (spec section 3.0), and the safety
  * acknowledgement stays permanently reachable (spec section 10).
  *
- * Session structure - durations, rounds, exercise swaps - lands in the
- * customisation milestone.
+ * Session structure - durations, rounds, exercise swaps - lives in
+ * SessionCustomisation, which is long enough to be worth its own file.
  */
 const settingsStore = useSettingsStore()
 const settings = computed(() => settingsStore.settings)
@@ -31,6 +32,12 @@ const cueToggles = [
   { key: 'haptics', label: 'Vibration' },
   { key: 'keepScreenAwake', label: 'Keep screen awake' },
 ] as const
+
+const themeOptions: readonly { value: Theme; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
 
 const showSafety = ref(false)
 
@@ -151,6 +158,31 @@ const acknowledgedOn = computed(() => {
         />
       </label>
     </section>
+
+    <section class="mt-6" aria-labelledby="theme-heading">
+      <h2 id="theme-heading" class="text-sm tracking-wide text-ink-muted uppercase">Theme</h2>
+      <div class="mt-2 flex gap-3">
+        <!-- Independent of the OS by choice (spec section 12): a dark gym and a
+             bright phone are not the same preference. `Auto` keeps following
+             the system, including when it flips at sunset. -->
+        <button
+          v-for="option in themeOptions"
+          :key="option.value"
+          type="button"
+          class="min-h-14 flex-1 rounded-xl text-lg font-semibold"
+          :class="
+            settings.theme === option.value ? 'bg-ink text-surface' : 'bg-surface-raised'
+          "
+          :aria-pressed="settings.theme === option.value"
+          :data-testid="`theme-${option.value}`"
+          @click="settingsStore.update({ theme: option.value })"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+    </section>
+
+    <SessionCustomisation class="mt-6" />
 
     <ExportImport class="mt-6" />
 

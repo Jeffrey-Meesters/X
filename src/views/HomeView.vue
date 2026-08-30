@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useSessionRecovery } from '@/composables/useSessionRecovery'
 import ResumePrompt from '@/components/ResumePrompt.vue'
-import { SESSION_TEMPLATES, PROGRAM, substitutionsFor } from '@/data/sessions'
+import { SESSION_TEMPLATES, SESSIONS_BY_ID, PROGRAM, buildOptionsFor } from '@/data/sessions'
 import { getExercise } from '@/data/exercises'
 import { buildSegmentList, totalDurationMs } from '@/engine/segments'
 import { formatDuration } from '@/engine/format'
 import { useSettingsStore } from '@/stores/settings'
+import { useHistoryStore } from '@/stores/history'
+import { nextSessionId } from '@/engine/rotation'
 import { unlockAudio } from '@/composables/useAudioCues'
 
 const router = useRouter()
@@ -16,7 +18,30 @@ const recovery = useSessionRecovery()
 
 onMounted(() => void recovery.check())
 
-const nextSession = computed(() => SESSION_TEMPLATES[0]!)
+const historyStore = useHistoryStore()
+onMounted(() => void historyStore.load())
+
+/**
+ * Which session history says is next, and the one the user picked instead.
+ *
+ * The override is deliberately component state rather than a setting: it means
+ * "today I want the other one", not "change my program". Leaving the screen
+ * forgets it, which is the behaviour someone who tapped it once would expect.
+ */
+const override = ref<string | null>(null)
+
+const suggestedId = computed(
+  () => nextSessionId(historyStore.sessionLogs, PROGRAM.sessions) ?? SESSION_TEMPLATES[0]!.id,
+)
+
+const nextSession = computed(
+  () => SESSIONS_BY_ID.get(override.value ?? suggestedId.value) ?? SESSION_TEMPLATES[0]!,
+)
+
+/** The session the override would switch to. Two sessions, so it is the other one. */
+const alternative = computed(() =>
+  SESSION_TEMPLATES.find((session) => session.id !== nextSession.value.id),
+)
 
 /**
  * Both entry points into a session unlock audio first.
@@ -47,13 +72,13 @@ async function resumeSession(): Promise<void> {
  * the user is actually going to do. Reading the raw template instead would
  * promise a bench press to someone who told us they have no bench.
  */
-const previewSegments = computed(() => {
-  const substitutions = substitutionsFor(settingsStore.settings.hasBench)
-  return buildSegmentList(nextSession.value, {
+const previewSegments = computed(() =>
+  buildSegmentList(nextSession.value, {
+    ...buildOptionsFor(settingsStore.settings, nextSession.value.id),
+    // The lead-in is not part of the planned session length.
     leadIn: false,
-    ...(substitutions ? { substitutions } : {}),
-  })
-})
+  }),
+)
 
 const plannedDuration = computed(() => formatDuration(totalDurationMs(previewSegments.value)))
 
@@ -89,6 +114,16 @@ const circuitExercises = computed(() =>
           {{ exercise.name }}
         </li>
       </ol>
+
+      <button
+        v-if="alternative"
+        type="button"
+        class="mt-4 min-h-12 text-sm text-ink-muted underline"
+        data-testid="switch-session"
+        @click="override = alternative.id"
+      >
+        Do {{ alternative.name }} instead
+      </button>
     </section>
 
     <!-- Primary control sits in the bottom third and is a large tap target. -->

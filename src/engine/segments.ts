@@ -44,6 +44,25 @@ export interface BuildOptions {
    * per-exercise swaps in customisation.
    */
   readonly substitutions?: Readonly<Record<string, string>>
+  /**
+   * Circuit shape overrides from customisation (spec section 3.6). Each falls
+   * back to the template's own value, so the seeded templates stay the single
+   * definition of the default program.
+   */
+  readonly circuit?: {
+    readonly rounds?: number
+    readonly workSec?: number
+    readonly transitionSec?: number
+  }
+  /**
+   * Replace the finisher with one more set of this exercise (spec section 2's
+   * "fourth shoulder set" option).
+   *
+   * Expressed as an exercise id rather than a boolean because the engine has
+   * no business knowing which slot of which session counts as the shoulder
+   * one - that belongs with the template.
+   */
+  readonly replaceFinisherWithSetOf?: string
 }
 
 function substitute(
@@ -63,7 +82,7 @@ export function buildSegmentList(
   template: SessionTemplate,
   options: BuildOptions = {},
 ): readonly Segment[] {
-  const { leadIn = false, substitutions } = options
+  const { leadIn = false, substitutions, circuit: overrides } = options
   const segments: Segment[] = []
 
   const push = (segment: Omit<Segment, 'index'>): void => {
@@ -89,29 +108,49 @@ export function buildSegmentList(
     })
   }
 
-  const { rounds, workSec, transitionSec, exercises } = template.circuit
+  const { exercises } = template.circuit
+  const rounds = overrides?.rounds ?? template.circuit.rounds
+  const workSec = overrides?.workSec ?? template.circuit.workSec
+  const transitionSec = overrides?.transitionSec ?? template.circuit.transitionSec
+
+  const pushSet = (entry: { exerciseId: string; targetReps: RepRange }, round: number, of: number) => {
+    const exerciseId = substitute(entry.exerciseId, substitutions)
+    push({
+      type: 'work',
+      exerciseId,
+      durationMs: workSec * 1000,
+      round,
+      totalRounds: of,
+      targetReps: entry.targetReps,
+      halfwayCue: wantsHalfwayCue(exerciseId),
+    })
+    // Every work segment is followed by a transition, including the last one
+    // in the last round: that is where its set gets logged (spec section 3.3).
+    push({
+      type: 'transition',
+      exerciseId,
+      durationMs: transitionSec * 1000,
+      round,
+      totalRounds: of,
+      halfwayCue: false,
+    })
+  }
+
   for (let round = 1; round <= rounds; round += 1) {
     for (const entry of exercises) {
-      const exerciseId = substitute(entry.exerciseId, substitutions)
-      push({
-        type: 'work',
-        exerciseId,
-        durationMs: workSec * 1000,
-        round,
-        totalRounds: rounds,
-        targetReps: entry.targetReps,
-        halfwayCue: wantsHalfwayCue(exerciseId),
-      })
-      // Every work segment is followed by a transition, including the last one
-      // in the last round: that is where its set gets logged (spec section 3.3).
-      push({
-        type: 'transition',
-        exerciseId,
-        durationMs: transitionSec * 1000,
-        round,
-        totalRounds: rounds,
-        halfwayCue: false,
-      })
+      pushSet(entry, round, rounds)
+    }
+  }
+
+  const extraSetOf = options.replaceFinisherWithSetOf
+  if (extraSetOf !== undefined) {
+    const entry = exercises.find((item) => item.exerciseId === extraSetOf)
+    if (entry) {
+      // Counted as an extra round of that one exercise, not of the circuit:
+      // it really is its fourth set, and the progression rule reads the number
+      // of sets for an exercise rather than the circuit's round count.
+      pushSet(entry, rounds + 1, rounds + 1)
+      return segments
     }
   }
 

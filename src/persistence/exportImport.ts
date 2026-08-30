@@ -137,6 +137,7 @@ function readSessionLog(raw: Record<string, unknown>, index: number): SessionLog
   const where = `Session ${index + 1}`
   const workingTimeMs = optionalNum(raw, 'workingTimeMs', where)
   const totalElapsedMs = optionalNum(raw, 'totalElapsedMs', where)
+  const rounds = optionalNum(raw, 'rounds', where)
   return {
     id: str(raw, 'id', where),
     programId: str(raw, 'programId', where),
@@ -149,6 +150,7 @@ function readSessionLog(raw: Record<string, unknown>, index: number): SessionLog
     // an explicit `undefined` as different from an absent key.
     ...(workingTimeMs === undefined ? {} : { workingTimeMs }),
     ...(totalElapsedMs === undefined ? {} : { totalElapsedMs }),
+    ...(rounds === undefined ? {} : { rounds }),
   }
 }
 
@@ -201,14 +203,24 @@ function readSettings(value: unknown): Settings {
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
     const incoming = value[key]
     if (incoming === undefined) continue
-    const expected = DEFAULT_SETTINGS[key]
-    // `onboardingCompletedAt` and `safetyAcknowledgedAt` default to null, so
-    // their type is checked against what they may hold rather than the default.
-    const acceptable =
-      expected === null ? incoming === null || typeof incoming === 'string' : typeof incoming === typeof expected
-    if (acceptable) Object.assign(merged, { [key]: incoming })
+    if (matchesDefaultShape(incoming, DEFAULT_SETTINGS[key])) {
+      Object.assign(merged, { [key]: incoming })
+    }
   }
   return merged
+}
+
+function matchesDefaultShape(incoming: unknown, expected: unknown): boolean {
+  // `onboardingCompletedAt` and `safetyAcknowledgedAt` default to null, so
+  // their type is checked against what they may hold rather than the default.
+  if (expected === null) return incoming === null || typeof incoming === 'string'
+  // `typeof` alone would wave through an array or a null for `exerciseSwaps`,
+  // and a swap map whose values are not ids would send the segment builder
+  // looking up an exercise that cannot exist.
+  if (typeof expected === 'object') {
+    return isRecord(incoming) && Object.values(incoming).every((v) => typeof v === 'string')
+  }
+  return typeof incoming === typeof expected
 }
 
 export function parseImport(text: string): ParseResult {
