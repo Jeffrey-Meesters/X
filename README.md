@@ -20,7 +20,7 @@ Under construction, built in milestones against the product spec.
 - [x] **7 — Cues**: generated tones, voice, haptics, wake lock
 - [x] **8 — Animations**: 16 hand-authored SVG movements
 - [x] **9 — History**: summary, progression nudges, charts, weekly rollup
-- [ ] 10 — PWA shell, offline, export/import
+- [x] **10 — PWA**: installable, offline, JSON export/import, Firebase hosting config
 - [ ] 11 — Customisation screens
 
 ## Getting started
@@ -39,6 +39,7 @@ npm run dev
 | `npm run test` | Vitest unit tests |
 | `npm run test:e2e` | Playwright end-to-end tests |
 | `npm run verify` | type-check + test + build |
+| `npm run icons` | re-render the app icons from `scripts/icon.mjs` |
 
 ## Architecture
 
@@ -56,7 +57,7 @@ src/
   engine/       pure TypeScript: segment list, timer, progression, volume, units
   stores/       Pinia: session, history, library, settings
   composables/  side effects: audio, voice, wake lock, haptics, persistence
-  persistence/  IndexedDB (logs and sets) and localStorage (settings)
+  persistence/  IndexedDB (logs and sets), localStorage (settings), export/import
   components/   animations/ player/ ui/
   views/        Home, Player, Summary, History, Settings, Onboarding
   data/         seeded exercise library, session templates, program
@@ -195,6 +196,83 @@ that the next session's pre-fill consults. The target stops applying once the
 exercise has been lifted since, so a stale acceptance never overrides a weight
 the user has already moved past by hand.
 
+### Installing and working offline
+
+`vite-plugin-pwa` in `generateSW` mode precaches the whole app - 61 files,
+about 270 KB - on first load. There is no runtime caching strategy because
+there is nothing to fetch at runtime: tones are synthesised, movement demos are
+inline SVG, and there is no backend. `navigateFallback` covers the client-side
+routes, so `/history` opened cold with no network still resolves to the shell.
+
+**Updates are offered, never taken.** `registerType` is `prompt`, not
+`autoUpdate`, and the two are mutually exclusive: on `autoUpdate` the client
+calls `window.location.reload()` the moment a new worker activates. That is a
+reload landing on someone mid-set with the phone on the floor. On `prompt` the
+new worker waits and `UpdatePrompt.vue` offers it - and even then the prompt
+stays hidden while a session is running.
+
+Two things to know before writing a test that touches the worker:
+
+- **`page.waitForFunction` does not await an async predicate.** It tests the
+  returned Promise for truthiness, and a Promise is always truthy, so
+  `waitForFunction(async () => false)` resolves immediately. Awaiting
+  `navigator.serviceWorker.ready` inside `page.evaluate` is the primitive that
+  actually waits.
+- On `prompt` registration Workbox does not call `clientsClaim`, so the page
+  that installed the worker is never controlled by it. A reload is what hands
+  over control.
+
+The icons come from one source, `scripts/icon.mjs`, rendered by `npm run
+icons`. The mark is a dumbbell with a single fat plate per side, and the shape
+was chosen by rendering candidates at 48px and looking at them: a more literal
+two-plate dumbbell collapses into a striped sliver at home-screen size. The
+maskable variant scales to 0.8 because a launcher may crop to a circle of 80%
+diameter, and the mark's corners sit outside that at full size.
+
+### Export and import
+
+JSON export is the only way data leaves the device, and import is therefore the
+only way a user can lose history. Three rules follow:
+
+- **Import replaces; it does not merge.** The app is single-user and
+  single-device by design, so the case to serve is moving to a new phone. A
+  merge would answer a multi-device question the app does not have, while
+  quietly producing a history that never happened on any one device. The cost
+  is that replace can destroy data, so it is spent behind a confirmation that
+  names the count it is about to delete, with the destructive button styled and
+  positioned as the one you have to reach for.
+- **Validate everything before writing anything.** A half-applied import is
+  worse than a rejected one, because the user cannot tell what survived.
+  `parseImport` returns either a complete typed payload or a message, and never
+  touches storage; `replaceAll` then does the wipe and the writes in a single
+  IndexedDB transaction, so a failure rolls back rather than leaving the device
+  with neither its old history nor the file's.
+- **The file carries `format` and `version`.** Without them a future shape
+  change gets silently mis-parsed into plausible-looking wrong data, and any
+  other JSON on the phone looks like a candidate.
+
+Export prefers the Web Share sheet where it exists and falls back to a
+download. On an iOS home-screen app a plain `<a download>` has nowhere to put
+the file - Safari opens the JSON in a tab - so sharing to Files is the only
+route off the device. The export is built synchronously from the in-memory
+history mirror rather than by reading IndexedDB, which is what keeps it inside
+the click's user gesture: Safari drops the gesture across an `await`, and
+without one the share is refused.
+
+### Hosting
+
+`firebase.json` serves `dist/` with an SPA rewrite, hashed assets and the
+Workbox runtime as `immutable` for a year, and `index.html`, `sw.js` and
+`manifest.webmanifest` as `no-cache` - a cached `index.html` or worker is how
+users get stuck on a build forever. Icons are not content-hashed, so they get a
+day rather than a year.
+
+`.firebaserc` holds a placeholder project id. The deploy workflow reads
+`FIREBASE_SERVICE_ACCOUNT` in a first job and passes a flag to the second,
+because the `secrets` context is not readable from a job-level `if` - without
+that, deploy would fail on every push until the secret exists and paint `main`
+red for a reason nobody can act on.
+
 ## Toolchain notes
 
 **TypeScript is pinned to 5.9.3 on purpose — do not bump it to 7.x.**
@@ -214,9 +292,12 @@ Other things worth knowing:
   and the `dark` class variant are declared in `src/styles/main.css`.
 - **Vitest 4** rejects a `test` key inside `vite.config.ts`, so test config
   lives in `vitest.config.ts`.
-- TypeScript is split across `tsconfig.app.json` (DOM) and `tsconfig.node.json`
-  (build tooling) because a single config drags Node-typed declarations into the
-  browser program.
+- TypeScript is split across four projects. `tsconfig.app.json` is DOM-only,
+  `tsconfig.node.json` covers build tooling, and `tsconfig.vitest.json` and
+  `tsconfig.e2e.json` need both - a single config drags Node-typed declarations
+  into the browser program. Watch out when moving files between them: `exclude`
+  is inherited through `extends` and applied *after* `include`, and a project
+  that ends up matching no files typechecks clean and silent.
 - Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to point at an existing Chromium if you
   are in a sandbox whose pre-installed browser does not match the Playwright
   version.

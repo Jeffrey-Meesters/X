@@ -178,7 +178,7 @@ export async function clearProgressionTarget(exerciseId: string): Promise<void> 
   await (await getDb()).delete('progressionTargets', exerciseId)
 }
 
-/** Everything, for the JSON export in a later milestone. */
+/** Everything, for the JSON export. */
 export async function exportAll(): Promise<{
   sessionLogs: SessionLog[]
   sets: LoggedSet[]
@@ -200,4 +200,49 @@ export async function clearAll(): Promise<void> {
     db.clear('activeSession'),
     db.clear('progressionTargets'),
   ])
+}
+
+/**
+ * Wipes local data and installs the contents of an import, in one transaction.
+ *
+ * One transaction rather than a clear followed by writes, because the failure
+ * mode of the naive version is losing everything: a quota error or a browser
+ * closing the tab halfway through leaves the user with neither their old
+ * history nor the imported file's. IndexedDB aborts and rolls the whole thing
+ * back instead.
+ *
+ * The recovery row goes too. It points at a session log that is about to stop
+ * existing, and offering to resume it would restore a workout with nowhere to
+ * write its sets.
+ */
+export async function replaceAll(data: {
+  sessionLogs: readonly SessionLog[]
+  sets: readonly LoggedSet[]
+  progressionTargets: readonly ProgressionTarget[]
+}): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction(
+    ['sessionLogs', 'sets', 'activeSession', 'progressionTargets'],
+    'readwrite',
+  )
+
+  const logs = tx.objectStore('sessionLogs')
+  const sets = tx.objectStore('sets')
+  const targets = tx.objectStore('progressionTargets')
+
+  // Every request is issued before anything is awaited. IndexedDB runs a
+  // transaction's requests in the order they were placed, so the clears still
+  // happen before the puts - while awaiting in between would hand control back
+  // and risk the transaction auto-committing underneath the writes.
+  await Promise.all([
+    logs.clear(),
+    sets.clear(),
+    targets.clear(),
+    tx.objectStore('activeSession').clear(),
+    ...data.sessionLogs.map((log) => logs.put(toStorable(log))),
+    ...data.sets.map((set) => sets.put(toStorable(set))),
+    ...data.progressionTargets.map((target) => targets.put(toStorable(target))),
+  ])
+
+  await tx.done
 }
